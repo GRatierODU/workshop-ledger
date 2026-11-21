@@ -4,6 +4,7 @@
 // Tap the widget to open the dashboard. Data refreshes on its own about every 10–15 min
 // (iOS decides the exact moment).
 
+const VERSION = "v3";
 const SITE = "https://gratierodu.github.io/workshop-ledger/";
 const GOLD = new Color("#d4ab4f"), INK = new Color("#ece8df"), MUTED = new Color("#9a948a");
 const UP = new Color("#6cc27a"), DOWN = new Color("#e57373"), BG = new Color("#15161a");
@@ -55,6 +56,8 @@ function drawDots(w) {
     text(row, "●", i === page ? 8 : 6, i === page ? GOLD : MUTED);
     if (i < pages - 1) row.addSpacer(3);
   }
+  row.addSpacer();
+  text(row, VERSION, 7, MUTED);
 }
 
 const RANK_LABELS = { trend_agot: "trending AGOT", trend_all: "trending CK3", subs_agot: "AGOT by subs", subs_all: "CK3 by subs" };
@@ -64,6 +67,48 @@ function bestRank(ins, id) {
   if (!r) return null;
   const k = Object.keys(RANK_LABELS).filter((k) => r[k]).sort((a, b) => r[a] - r[b])[0];
   return k ? `#${r[k]} ${RANK_LABELS[k]}` : null;
+}
+
+function stat(row, value, label) {
+  const col = row.addStack();
+  col.layoutVertically();
+  text(col, value, 14, INK, true);
+  text(col, label, 8, MUTED);
+}
+
+function globalPage(w, mods, page, pages, ins, stats, d1, up, down) {
+  w.url = SITE;
+  const head = w.addStack();
+  head.centerAlignContent();
+  text(head, "WORKSHOP LEDGER", 10, GOLD, true);
+  head.addSpacer();
+  text(head, ago(stats.fetched), 9, MUTED);
+  w.addSpacer(3);
+  const tot = w.addStack();
+  tot.bottomAlignContent();
+  text(tot, fmt(mods.reduce((a, m) => a + (m.subs || 0), 0)), 24, INK, true);
+  delta(tot, d1, 11);
+  text(w, "subscribers" + (up + down ? ` · ${Math.round((up / (up + down)) * 100)}% positive` : ""), 10, MUTED);
+  w.addSpacer(6);
+  const row = w.addStack();
+  stat(row, fmt(mods.reduce((a, m) => a + (m.favorites || 0), 0)), "FAVS");
+  row.addSpacer();
+  stat(row, fmt(mods.reduce((a, m) => a + (m.comments || 0), 0)), "COMMENTS");
+  row.addSpacer();
+  stat(row, fmt(up + down), "RATINGS");
+  w.addSpacer(5);
+  // best ranking across all mods
+  let best = null;
+  for (const m of mods) {
+    const r = ins && ins.ranks && ins.ranks[m.id];
+    if (!r) continue;
+    for (const k of Object.keys(RANK_LABELS)) if (r[k] && (!best || r[k] < best.rank)) best = { rank: r[k], k, m };
+  }
+  if (best) text(w, `#${best.rank} ${RANK_LABELS[best.k]} · ${short(best.m.title)}`, 10, INK);
+  w.addSpacer();
+  dots(w, page, pages, stats);
+  drawDots(w);
+  return w;
 }
 
 function modPage(w, m, page, pages, ins, stats) {
@@ -135,7 +180,7 @@ async function build() {
       w.refreshAfterDate = new Date(Date.now() + 5 * 60 * 1000);
     }
     if (page > 0) return modPage(w, mods[page - 1], page, pages, ins, stats);
-    dots(w, 0, pages, stats);
+    return globalPage(w, mods, page, pages, ins, stats, d1, up, down);
   }
 
   // Header
