@@ -127,7 +127,7 @@ def run(my_ids, state_dir, out_path, notify, now, read_json, write_json):
             coll_of.setdefault(str(d["publishedfileid"]), []).append(fid)
 
     # Details for the leaderboards and collections
-    lead_ids = subs_agot[:TOP] + trend_agot[:TOP]
+    lead_ids = subs_agot[:TOP] + trend_agot[:TOP] + subs_all[:TOP] + trend_all[:TOP]
     info = details(lead_ids + list(coll_of) + mine)
 
     # Subscriber history for leaderboard mods and yours (hourly, 8 days)
@@ -199,6 +199,7 @@ def run(my_ids, state_dir, out_path, notify, now, read_json, write_json):
         "totals": {"all": TOTALS.get("all"), "agot": TOTALS.get("agot")},
         "ranks": ranks,
         "leaders": {"subs": board(subs_agot), "trend": board(trend_agot)},
+        "leaders_all": {"subs": board(subs_all), "trend": board(trend_all)},
         "collections": collections,
         "titles": {fid: info.get(fid, {}).get("title", fid) for fid in mine},
     })

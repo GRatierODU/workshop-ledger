@@ -191,8 +191,9 @@ select{font:13px var(--body);color:var(--ink);background:var(--panel);border:1px
   <tbody id="rows"><tr><td colspan="9" style="text-align:center;color:var(--muted);padding:30px">Loading your mods…</td></tr></tbody>
 </table></div>
 <section class="panel" id="leadpanel" hidden>
-  <div class="bar2"><h2>AGOT leaderboard</h2>
-    <div class="seg" role="group" aria-label="Leaderboard order"><button type="button" data-b="subs" aria-pressed="true">Most subscribed</button><button type="button" data-b="trend" aria-pressed="false">Trending this week</button></div>
+  <div class="bar2"><h2>Leaderboard</h2>
+    <div class="seg" id="scopeseg" role="group" aria-label="Which mods"><button type="button" data-s="agot" aria-pressed="true">AGOT submods</button><button type="button" data-s="all" aria-pressed="false">All of CK3</button></div>
+    <div class="seg" id="orderseg" role="group" aria-label="Leaderboard order"><button type="button" data-b="subs" aria-pressed="true">Most subscribed</button><button type="button" data-b="trend" aria-pressed="false">Trending this week</button></div>
     <div class="note" id="leadnote"></div></div>
   <ol class="lb" id="leaders"></ol>
 </section>
@@ -213,7 +214,7 @@ const store={get(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){retu
 const cols=[
  {k:'title',l:'Mod'},{k:'stars',l:'Rating'},{k:'subs',l:'Subscribers'},{k:'lifetime_subs',l:'Lifetime subs'},{k:'favorites',l:'Favorites'},
  {k:'visitors',l:'Visitors'},{k:'rate',l:'Sub rate'},{k:'positive',l:'Positive'},{k:'size',l:'Size'}];
-let sortKey='subs',sortDir=-1,data=null,ins=null,board='subs';
+let sortKey='subs',sortDir=-1,data=null,ins=null,board='subs',scope='agot';
 {const s=store.get('wl-sort');if(s&&cols.some(c=>c.k===s.k)){sortKey=s.k;sortDir=s.d}}
 function setSort(k,d){sortKey=k;sortDir=d;store.set('wl-sort',{k,d});render()}
 function head(){
@@ -287,13 +288,13 @@ function renderInsights(){
  if(!ins)return;
  document.getElementById('leadpanel').hidden=false;
  const g=v=>v==null?'':`<span class="${v>0?'up':v<0?'down':''}">${v>0?'+':''}${fmt(v)}</span>`;
- const rows=ins.leaders[board]||[];
+ const rows=((scope==='all'?ins.leaders_all:ins.leaders)||{})[board]||[];
  document.getElementById('leaders').innerHTML=rows.map((r,i)=>`<li class="${r.mine?'mine':''} ${i&&rows[i-1].rank<r.rank-1?'gap':''}">
   <span class="rk">${r.rank}</span><img src="${esc(r.preview)}" alt="" loading="lazy" referrerpolicy="no-referrer">
   <span class="nm"><a href="${link(r.id)}" target="_blank" rel="noopener">${esc(r.title)}</a>${r.mine?'<span class="pill" style="margin-left:0">yours</span> ':''}<span class="sub">${r.positive!=null?r.positive+'% positive':''}</span></span>
   <span class="nums">${fmt(r.subs)}<small>${r.d1!=null?g(r.d1)+' 24h':''}${r.d7!=null?' · '+g(r.d7)+' 7d':''}</small></span></li>`).join('');
  const t=ins.totals||{};
- document.getElementById('leadnote').textContent=`Out of ${fmt(t.agot)} AGOT submods. Your mods outside the top 10 are added at the bottom. Growth figures fill in after a day.`;
+ document.getElementById('leadnote').textContent=(scope==='all'?`Out of ${fmt(t.all)} CK3 Workshop items (ranks checked up to #1,000).`:`Out of ${fmt(t.agot)} AGOT submods.`)+' Your mods outside the top 10 are added at the bottom. Growth figures fill in after a day.'+(scope==='all'&&!ins.leaders_all?' The CK3 list appears after the next hourly ranking update.':'');
  const cs=ins.collections||[];document.getElementById('collpanel').hidden=false;
  const firstRun=Math.min(...cs.map(c=>c.first_seen),Infinity);
  document.getElementById('collnote').textContent=cs.length?`${cs.length} collection${cs.length>1?'s':''} include at least one of your mods. Your phone gets an alert when a new one appears.`:'No public collections include your mods yet.';
@@ -302,8 +303,10 @@ function renderInsights(){
   <span class="nm"><a href="${link(c.id)}" target="_blank" rel="noopener">${esc(c.title)}</a>${fresh?'<span class="pill new" style="margin-left:0">new</span> ':''}<span class="sub">${c.mods.map(m=>esc((ins.titles||{})[m]||m)).join(', ')}${c.items?` · ${c.items} items`:''}</span></span>
   <span class="nums">${fmt(c.views)}<small>visitors · ${fmt(c.favorites)} ★</small></span></li>`}).join('');
 }
-document.querySelector('#leadpanel .seg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;board=b.dataset.b;
- document.querySelectorAll('#leadpanel .seg button').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));renderInsights()});
+document.getElementById('orderseg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;board=b.dataset.b;
+ document.querySelectorAll('#orderseg button').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));renderInsights()});
+document.getElementById('scopeseg').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;scope=b.dataset.s;
+ document.querySelectorAll('#scopeseg button').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));renderInsights()});
 async function load(){
  const dot=document.getElementById('dot'),err=document.getElementById('error');dot.className='dot busy';
  try{data=await getJSON('data/stats.json');try{ins=await getJSON('data/insights.json')}catch(e){};err.hidden=true;render();renderInsights()}
