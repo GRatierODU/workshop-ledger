@@ -4,7 +4,7 @@
 // Tap the widget to open the dashboard. Data refreshes on its own about every 10–15 min
 // (iOS decides the exact moment).
 
-const VERSION = "v3";
+const VERSION = "v4";
 const SITE = "https://gratierodu.github.io/workshop-ledger/";
 const GOLD = new Color("#d4ab4f"), INK = new Color("#ece8df"), MUTED = new Color("#9a948a");
 const UP = new Color("#6cc27a"), DOWN = new Color("#e57373"), BG = new Color("#15161a");
@@ -52,12 +52,12 @@ function drawDots(w) {
   w.addSpacer(4);
   const row = w.addStack();
   row.centerAlignContent();
+  row.addSpacer();
   for (let i = 0; i < pages; i++) {
     text(row, "●", i === page ? 8 : 6, i === page ? GOLD : MUTED);
     if (i < pages - 1) row.addSpacer(3);
   }
   row.addSpacer();
-  text(row, VERSION, 7, MUTED);
 }
 
 const RANK_LABELS = { trend_agot: "trending AGOT", trend_all: "trending CK3", subs_agot: "AGOT by subs", subs_all: "CK3 by subs" };
@@ -82,7 +82,7 @@ function globalPage(w, mods, page, pages, ins, stats, d1, up, down) {
   head.centerAlignContent();
   text(head, "WORKSHOP LEDGER", 10, GOLD, true);
   head.addSpacer();
-  text(head, ago(stats.fetched), 9, MUTED);
+  text(head, ago(stats.fetched) + " · " + VERSION, 9, MUTED);
   w.addSpacer(3);
   const tot = w.addStack();
   tot.bottomAlignContent();
@@ -116,6 +116,8 @@ function modPage(w, m, page, pages, ins, stats) {
   const head = w.addStack();
   head.centerAlignContent();
   text(head, short(m.title).toUpperCase(), 10, GOLD, true);
+  head.addSpacer();
+  text(head, VERSION, 7, MUTED);
   w.addSpacer(3);
   const subs = w.addStack();
   subs.bottomAlignContent();
@@ -177,7 +179,7 @@ async function build() {
       const last = Keychain.contains(KEY) ? Number(Keychain.get(KEY)) : -1;
       page = config.runsInWidget ? (last + 1) % pages : Math.max(0, last);
       Keychain.set(KEY, String(page));
-      w.refreshAfterDate = new Date(Date.now() + 5 * 60 * 1000);
+      w.refreshAfterDate = new Date(Date.now() + 60 * 1000); // as soon as iOS allows
     }
     if (page > 0) return modPage(w, mods[page - 1], page, pages, ins, stats);
     return globalPage(w, mods, page, pages, ins, stats, d1, up, down);
