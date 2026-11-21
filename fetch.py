@@ -18,6 +18,7 @@ EXTRA_IDS = []  # add an id here if one ever fails to show up
 MY_ACCOUNT = str(int(STEAM_ID) - 76561197960265728)  # your own replies never notify
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "").strip()
 PAUSE = 4  # seconds between steamcommunity.com requests (it answers 429 to bursts)
+PAGES_PER_RUN = 2  # Workshop pages are rate-limited hard; ratings refresh in rotation
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "docs", "data")
@@ -136,7 +137,7 @@ def fetch_comments(fid, count=25):
                     "mine": bool(prof and prof.group(2) == MY_ACCOUNT),
                     "avatar": av.group(1) if av else "",
                     "text": clean(text.group(1)) if text else ""})
-    return out
+    return out, js.get("total_count", len(out))
 
 
 def notify(title, message, click):
@@ -158,35 +159,34 @@ def main():
 
     # Workshop pages (rating, comments...). Keep the last good values when Steam refuses.
     extras = read_json("page_cache.json", {})
-    todo = [d["publishedfileid"] for d in details]
-    for attempt in range(3):  # refused pages get retried, more slowly each pass
-        failed = []
-        for fid in todo:
-            e = page_extras(fid)
-            if e:
-                extras[fid] = e
-            else:
-                failed.append(fid)
-            time.sleep(PAUSE * (attempt + 1))
-        if not failed:
-            break
-        todo = failed
-        time.sleep(20 * (attempt + 1))
+    # Only the star rating needs the page, and it changes slowly: refresh the
+    # PAGES_PER_RUN stalest mods each run (never-fetched first).
+    todo = sorted((d["publishedfileid"] for d in details), key=lambda f: extras.get(f, {}).get("t", 0))
+    for fid in todo[:PAGES_PER_RUN]:
+        e = page_extras(fid)
+        if e:
+            extras[fid] = e
+        else:
+            print("Workshop page refused for", fid)
+        time.sleep(PAUSE)
     write_json(os.path.join(STATE, "page_cache.json"), extras)
 
     # Comments, and phone alerts for new ones by other people.
     store = read_json("comments.json", {})
+    totals = read_json("comment_totals.json", {})
     first_run = not store
     new = []
     for fid in titles:
-        items = fetch_comments(fid)
-        if items is not None:
+        res = fetch_comments(fid)
+        if res is not None:
+            items, totals[fid] = res
             if fid in store:
                 known = {c["id"] for c in store[fid]}
                 new += [c for c in items if c["id"] not in known and not c["mine"]]
             store[fid] = items
         time.sleep(PAUSE)
     write_json(os.path.join(STATE, "comments.json"), store)
+    write_json(os.path.join(STATE, "comment_totals.json"), totals)
     if not first_run:
         for c in sorted(new, key=lambda c: c["t"])[-5:]:
             notify(f"New comment on {titles.get(c['mod'], 'your mod')}", f"{c['author']}: {c['text']}", c["url"])
@@ -202,11 +202,11 @@ def main():
             "visibility": {0: "Public", 1: "Friends", 2: "Private", 3: "Unlisted"}.get(d.get("visibility"), "?"),
             "subs": d.get("subscriptions", 0), "lifetime_subs": d.get("lifetime_subscriptions", 0),
             "favorites": d.get("favorited", 0), "views": d.get("views", 0),
-            "visitors": e.get("visitors"), "size": int(d.get("file_size") or 0),
+            "visitors": d.get("views", 0),  # the API's views = unique visitors "size": int(d.get("file_size") or 0),
             "created": d.get("time_created", 0), "updated": d.get("time_updated", 0),
             "tags": [t["tag"] for t in d.get("tags", [])],
-            "stars": e.get("stars"), "ratings": e.get("ratings"), "comments": e.get("comments"),
-            "changenotes": e.get("changenotes"), "pending": not e,
+            "stars": e.get("stars"), "ratings": e.get("ratings"), "comments": totals.get(fid, e.get("comments")),
+            "changenotes": e.get("changenotes"), "pending": "stars" not in e,
         })
 
     # History: one snapshot per 30 min, used for 24 h gains and the trend line.
