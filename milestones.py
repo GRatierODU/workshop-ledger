@@ -9,6 +9,13 @@ import os
 SUBS = [100, 250, 500, 750, 1000, 1500, 2000, 2500, 3000, 4000, 5000, 7500, 10000, 15000, 20000,
         25000, 30000, 40000, 50000, 75000, 100000, 150000, 200000, 250000, 500000, 1000000]
 FAVS = [50, 100, 250, 500, 750, 1000, 2500, 5000, 10000, 25000, 50000, 100000]
+STARS = [4, 5]  # plus an alert the first time a mod gets any star rating
+RANK_TIERS = {  # best tier reached alerts once; smaller is better
+    "trend_agot": ([10, 5, 3, 1], "trending among AGOT submods"),
+    "subs_agot": ([250, 100, 50, 25, 10, 5, 3, 1], "most subscribed among AGOT submods"),
+    "trend_all": ([100, 50, 25, 10, 5, 3, 1], "trending on the CK3 Workshop"),
+    "subs_all": ([1000, 500, 250, 100, 50, 10, 1], "most subscribed on the CK3 Workshop"),
+}
 TOTAL = [2500, 5000, 7500, 10000, 15000, 20000, 25000, 30000, 40000, 50000, 75000, 100000,
          150000, 178000, 200000, 250000, 500000, 1000000]  # 178k = top-submod size goal
 
@@ -43,11 +50,48 @@ def check(mods, state_dir, notify, read_json, write_json):
         track(f"favs:{fid}", m.get("favorites"), FAVS,
               lambda n, name=name: f"⭐ {name} reached {n:,} favorites",
               f"Now {m.get('favorites', 0):,} favorites.", page(fid))
+        # Star rating: first rating, then 4 and 5 stars
+        stars = m.get("stars")
+        if not m.get("pending"):
+            key = f"stars:{fid}"
+            if key not in state:
+                state[key] = stars or 0
+            elif stars and stars > state[key]:
+                first = state[key] == 0
+                state[key] = stars
+                if first:
+                    alerts.append((f"⭐ {name} now has a star rating: {stars} stars",
+                                   f"{m.get('ratings') or 0:,} ratings so far.", page(fid)))
+                elif stars in STARS:
+                    alerts.append((f"⭐ {name} reached {stars} stars",
+                                   f"{m.get('ratings') or 0:,} ratings.", page(fid)))
     total = sum(m.get("subs") or 0 for m in mods)
     track("subs:total", total, TOTAL,
           lambda n: f"🏆 Your mods reached {n:,} subscribers in total",
           f"{total:,} subscribers across {len(mods)} mods.", "https://gratierodu.github.io/workshop-ledger/")
 
+    for title, body, url in alerts:
+        notify(title, body, url)
+    write_json(os.path.join(state_dir, "milestones.json"), state)
+    return alerts
+
+
+def check_ranks(ranks, titles, state_dir, notify, read_json, write_json):
+    """Alert the first time a mod reaches a better ranking tier (top 10, top 5, #1 ...)."""
+    state = read_json("milestones.json", {})
+    alerts = []
+    for fid, rk in ranks.items():
+        for key, (tiers, label) in RANK_TIERS.items():
+            r = rk.get(key)
+            tier = min((t for t in tiers if r and r <= t), default=None)
+            sk = f"rank:{key}:{fid}"
+            if sk not in state:
+                state[sk] = tier  # first time: remember silently
+            elif tier and (state[sk] is None or tier < state[sk]):
+                state[sk] = tier
+                where = "#1" if tier == 1 else f"the top {tier:,}"
+                alerts.append((f"📈 {titles.get(fid, fid)} reached {where} {label}",
+                               f"Now #{r:,}.", f"https://steamcommunity.com/sharedfiles/filedetails/?id={fid}"))
     for title, body, url in alerts:
         notify(title, body, url)
     write_json(os.path.join(state_dir, "milestones.json"), state)

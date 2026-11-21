@@ -112,8 +112,9 @@ def rating_alerts(votes, extras, old_stars, titles):
             notify(f"{name} was reported", f"{v['reports']} report(s) on Steam. Worth checking the comments.", page(fid))
     for fid, stars in old_stars.items():
         new = extras.get(fid, {}).get("stars")
-        if "stars" in extras.get(fid, {}) and new != stars and stars is not None and new is not None:
-            notify(f"{titles.get(fid, fid)}: rating {'up' if new > stars else 'down'} to {new} stars",
+        # Rises are covered by the star milestones; only warn about drops here.
+        if "stars" in extras.get(fid, {}) and stars is not None and new is not None and new < stars:
+            notify(f"{titles.get(fid, fid)}: rating down to {new} stars",
                    f"Was {stars} stars.", page(fid))
 
 

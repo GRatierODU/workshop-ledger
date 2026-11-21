@@ -186,15 +186,11 @@ def run(my_ids, state_dir, out_path, notify, now, read_json, write_json):
     # Steam counts no subscribers on collections, so rank them by visitors
     collections.sort(key=lambda c: -(c["views"] or 0))
 
-    # Milestone alerts: one of your mods enters the AGOT top 10
-    for fid in mine:
-        was = prev.get("ranks", {}).get(fid, {})
-        for key, label in (("subs_agot", "most subscribed"), ("trend_agot", "trending")):
-            now_r, was_r = ranks[fid].get(key), was.get(key)
-            if now_r and now_r <= 10 and (not was_r or was_r > 10) and prev.get("t"):
-                notify(f"{info.get(fid, {}).get('title', fid)} entered the AGOT top 10",
-                       f"Now #{now_r} {label} among AGOT submods.",
-                       f"https://steamcommunity.com/sharedfiles/filedetails/?id={fid}")
+    # Ranking milestones (top 10, top 5, #1 ...), each alerted once
+    import milestones
+    milestones.check_ranks({f: {k: v for k, v in r.items() if k != "d1"} for f, r in ranks.items()},
+                           {f: info.get(f, {}).get("title", f) for f in mine},
+                           state_dir, notify, read_json, write_json)
 
     write_json(os.path.join(state_dir, "insights_state.json"),
                {"t": now, "collections_seen": first_seen, "ranks": ranks})
