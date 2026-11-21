@@ -6,7 +6,7 @@ on:
   workflow_dispatch: {}       # "Run workflow" button for an update right now
   push:
     branches: [main]
-    paths: ["docs/index.html", "fetch.py", ".github/workflows/update.yml"]
+    paths: ["docs/**", "!docs/data/**", "*.py", ".github/workflows/update.yml"]
 
 permissions:
   contents: write
