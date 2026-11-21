@@ -34,6 +34,20 @@ h1{font:700 26px var(--display);letter-spacing:.04em;margin:0;text-wrap:balance}
 h1 small{display:block;font:500 12px var(--body);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-top:4px}
 .status{display:flex;flex-wrap:wrap;align-items:center;gap:10px;color:var(--muted);font-size:12px}
 .when{display:flex;align-items:center;gap:8px}
+.ov{position:fixed;inset:0;z-index:30;display:grid;place-items:center;padding:24px;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(3px)}
+.ovbox{width:min(360px,100%);background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:28px 22px 22px;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,.3)}
+.spin{width:84px;height:84px;margin:0 auto 18px;border-radius:50%;border:7px solid var(--line);border-top-color:var(--gold);animation:sp 0.9s linear infinite}
+.ovbox.done .spin{animation:none;border-color:var(--up)}
+.ovbox.fail .spin{animation:none;border-color:var(--down)}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation-duration:3s}}
+.ovbox h3{font:700 17px var(--display);letter-spacing:.03em;margin:0 0 6px}
+.ovbox .msg{color:var(--muted);font-size:13px;min-height:2.6em}
+.prog{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin:16px 0 8px}
+.prog i{display:block;height:100%;width:0;background:var(--gold);transition:width .6s ease}
+.steps{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);gap:4px}
+.steps span.on{color:var(--ink);font-weight:600}.steps span.ok{color:var(--up)}
+.ovbox button{margin-top:16px}
 .toast{position:fixed;left:50%;bottom:max(20px,env(safe-area-inset-bottom));transform:translateX(-50%);max-width:min(92vw,420px);background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:8px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:20}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--up);flex:none}
 .dot.busy{background:var(--gold);animation:p 1s infinite}.dot.err{background:var(--down)}.dot.old{background:var(--gold)}
@@ -156,7 +170,7 @@ select{font:13px var(--body);color:var(--ink);background:var(--panel);border:1px
     <span class="when"><span class="dot busy" id="dot"></span><span id="when">Loading…</span></span>
     <span class="btns">
       <button id="bell" class="bell" type="button" aria-expanded="false" aria-controls="inbox"><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>Comments<span class="badge" id="badge" hidden>0</span></button>
-      <button id="refresh" type="button">Reload</button>
+      <button id="refresh" type="button">Refresh from Steam</button>
     </span>
   </div>
 </header>
@@ -298,12 +312,60 @@ async function load(){
 let toastTimer;
 function toast(msg){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';t.className='toast';t.setAttribute('role','status');document.body.appendChild(t)}
  t.textContent=msg;t.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.hidden=true,4000)}
+/* ---- Refresh from Steam: start the GitHub update and show its real progress ---- */
+const REFRESH_API='https://workshop-ledger-refresh.vercel.app/api/refresh';
+const RUNS_API='https://api.github.com/repos/GRatierODU/workshop-ledger/actions';
+const STEPS=[['Start','Set up job'],['Steam','Fetch Steam data'],['Save','Save state'],['Publish','Run actions/deploy-pages@v4']];
+function overlay(){
+ let o=document.getElementById('ov');if(o)return o;
+ o=document.createElement('div');o.id='ov';o.className='ov';o.setAttribute('role','dialog');o.setAttribute('aria-live','polite');
+ o.innerHTML=`<div class="ovbox"><div class="spin"></div><h3 id="ovt">Refreshing from Steam</h3><div class="msg" id="ovm"></div>
+  <div class="prog"><i id="ovp"></i></div><div class="steps" id="ovs">${STEPS.map(x=>`<span>${x[0]}</span>`).join('')}</div>
+  <button type="button" id="ovc">Hide</button></div>`;
+ document.body.appendChild(o);o.querySelector('#ovc').onclick=()=>o.hidden=true;return o}
+function ovSet(msg,pct,stepIdx,state){
+ const o=overlay();o.hidden=false;const box=o.querySelector('.ovbox');box.className='ovbox '+(state||'');
+ o.querySelector('#ovm').textContent=msg;if(pct!=null)o.querySelector('#ovp').style.width=pct+'%';
+ o.querySelectorAll('#ovs span').forEach((x,i)=>x.className=i<stepIdx?'ok':i===stepIdx?'on':'');
+ o.querySelector('#ovt').textContent=state==='done'?'Up to date':state==='fail'?'Refresh failed':'Refreshing from Steam';
+ o.querySelector('#ovc').textContent=state?'Close':'Hide'}
+async function runProgress(since){
+ // Real step progress from GitHub's public API (no token needed for a public repo).
+ try{
+  const r=await fetch(`${RUNS_API}/workflows/update.yml/runs?per_page=1`,{cache:'no-store'});if(!r.ok)return null;
+  const run=(await r.json()).workflow_runs[0];if(!run||Date.parse(run.created_at)<since-120000)return null;
+  const j=await fetch(`${RUNS_API}/runs/${run.id}/jobs`,{cache:'no-store'});if(!j.ok)return {run};
+  const steps=((await j.json()).jobs[0]||{}).steps||[];return {run,steps}}catch(e){return null}}
+let refreshing=false;
 document.getElementById('refresh').onclick=async()=>{
- const before=data&&data.fetched,btn=document.getElementById('refresh');btn.disabled=true;btn.textContent='Loading…';
- await load();btn.disabled=false;btn.textContent='Reload';
- if(!data)return;
- toast(data.fetched!==before?`Updated: Steam data from ${ago(data.fetched)}.`
-  :`Already up to date. Steam data is from ${ago(data.fetched)}; it refreshes every ~15 minutes.`)};
+ if(refreshing){overlay().hidden=false;return}
+ refreshing=true;const btn=document.getElementById('refresh');btn.disabled=true;
+ const t0=Date.now(),before=data?data.fetched:0;
+ ovSet('Asking GitHub to start an update…',4,0);
+ let started=false;
+ try{const r=await fetch(REFRESH_API,{method:'POST'});const j=await r.json().catch(()=>({}));
+  if(j.status==='started'||j.status==='running')started=true;
+  else{ovSet((j.message||'The refresh service did not answer')+'. Showing the latest saved data instead.',100,-1,'fail');await load();refreshing=false;btn.disabled=false;return}
+ }catch(e){ovSet('Could not reach the refresh service. Check your connection.',100,-1,'fail');refreshing=false;btn.disabled=false;return}
+ const deadline=t0+5*60000;
+ while(Date.now()<deadline){
+  await new Promise(r=>setTimeout(r,5000));
+  const secs=Math.round((Date.now()-t0)/1000);
+  // done as soon as the published data is newer than when we pressed the button
+  try{const s=await getJSON('data/stats.json');if(s.fetched>before&&s.fetched*1000>=t0-60000){ovSet(`New Steam data loaded after ${secs} s.`,100,STEPS.length,'done');await load();break}}catch(e){}
+  const p=await runProgress(t0);
+  if(p&&p.steps){const names=p.steps.map(x=>x.name);
+   let idx=0;STEPS.forEach((st,i)=>{const k=p.steps.find(x=>x.name===st[1]);if(k&&k.status!=='queued')idx=i});
+   const fail=p.steps.find(x=>x.conclusion==='failure');
+   if(fail){ovSet(`GitHub step "${fail.name}" failed. Try again in a minute.`,100,idx,'fail');break}
+   const doneAll=p.run.status==='completed';
+   ovSet(doneAll?'Published. Waiting for the page to update…':['Starting the update…','Fetching from Steam (about 45 s)…','Saving the new data…','Publishing the page…'][idx]+` ${secs} s`,
+    Math.min(95,doneAll?95:12+idx*22+Math.min(20,secs%60/3)),doneAll?STEPS.length-1:idx);
+  }else ovSet(`Waiting for GitHub to start… ${secs} s`,Math.min(30,4+secs/2),0);
+ }
+ if(Date.now()>=deadline)ovSet('This is taking longer than usual. The data will appear once GitHub finishes.',100,-1,'fail');
+ refreshing=false;btn.disabled=false;
+ setTimeout(()=>{const o=document.getElementById('ov');if(o&&o.querySelector('.ovbox.done'))o.hidden=true},2500)};
 
 /* ---- comments inbox: read/unread is remembered on each device ---- */
 let cdata=null,seen=store.get('wl-seen');

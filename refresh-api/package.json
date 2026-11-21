@@ -1,0 +1,6 @@
+{
+  "name": "workshop-ledger-refresh",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=18" }
+}
