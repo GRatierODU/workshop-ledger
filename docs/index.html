@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Workshop Ledger</title>
+<meta name="theme-color" content="#f3f1ec" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#15161a" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Ledger">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%238a2b2b'/%3E%3Cpath d='M18 46V18h6v22h14v6z' fill='%23f3d58a'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a lord's ledger - totals strip, then one row per mod (cards on a phone), gains highlighted */
+:root{
+  --bg:#f3f1ec; --panel:#fffdf8; --ink:#1d1b18; --muted:#6c665c; --line:#e2ddd2;
+  --accent:#8a2b2b; --gold:#a37a1e; --up:#2f7a3d; --down:#b23a3a; --bar:#d8cbb0;
+  --display:"Cinzel",Georgia,serif; --body:"Inter",system-ui,sans-serif; --mono:"JetBrains Mono",Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#15161a; --panel:#1d1f24; --ink:#ece8df; --muted:#9a948a; --line:#2e3037;
+  --accent:#d26a5a; --gold:#d4ab4f; --up:#6cc27a; --down:#e57373; --bar:#4a4232; color-scheme:dark}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 var(--body);
+  padding:max(20px,env(safe-area-inset-top)) max(16px,3vw,env(safe-area-inset-right)) max(40px,env(safe-area-inset-bottom)) max(16px,3vw,env(safe-area-inset-left))}
+.page{max-width:1280px;margin:0 auto}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:20px}
+h1{font:700 26px var(--display);letter-spacing:.04em;margin:0;text-wrap:balance}
+h1 small{display:block;font:500 12px var(--body);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-top:4px}
+.status{display:flex;flex-wrap:wrap;align-items:center;gap:10px;color:var(--muted);font-size:12px}
+.when{display:flex;align-items:center;gap:8px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--up);flex:none}
+.dot.busy{background:var(--gold);animation:p 1s infinite}.dot.err{background:var(--down)}.dot.old{background:var(--gold)}
+@keyframes p{50%{opacity:.3}}
+@media (prefers-reduced-motion:reduce){.dot.busy{animation:none}}
+.btns{display:flex;gap:8px}
+button{font:600 12px var(--body);color:var(--ink);background:var(--panel);border:1px solid var(--line);
+  padding:7px 12px;border-radius:6px;cursor:pointer;min-height:34px}
+button:hover{border-color:var(--accent)}button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;min-width:0}
+.k{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
+.tile .v{font:600 24px var(--mono);font-variant-numeric:tabular-nums;margin-top:2px}
+.tile .d{font:12px var(--mono);margin-top:2px;color:var(--muted)}
+.up{color:var(--up)}.down{color:var(--down)}
+.spark{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-bottom:20px}
+.spark .k{margin-bottom:6px}
+.spark svg{width:100%;height:70px;display:block}
+.note{font-size:12px;color:var(--muted)}
+.wrap{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;min-width:860px}
+th,td{padding:10px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap;vertical-align:middle}
+th{font:600 11px var(--body);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);cursor:pointer;user-select:none;background:var(--panel)}
+th:hover{color:var(--ink)}th.sorted{color:var(--accent)}
+th:first-child,td:first-child{text-align:left}
+tr:last-child td{border-bottom:0}
+tbody tr:hover{background:color-mix(in srgb,var(--bar) 18%,transparent)}
+td.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.mod{display:flex;align-items:center;gap:10px;min-width:260px}
+.mod img{width:56px;height:56px;object-fit:cover;border-radius:6px;border:1px solid var(--line);flex:none;background:var(--line)}
+.mod a,.card a.t{color:var(--ink);font-weight:600;text-decoration:none}.mod a:hover,.card a.t:hover{color:var(--accent);text-decoration:underline}
+.sub{font-size:11px;color:var(--muted)}
+.pill{display:inline-block;font-size:10px;font-weight:600;padding:1px 6px;border-radius:9px;border:1px solid var(--line);color:var(--muted);margin-left:6px;vertical-align:1px}
+.pill.warn{color:var(--down);border-color:var(--down)}
+.subs{display:flex;align-items:center;justify-content:flex-end;gap:8px}
+.bar{width:70px;height:6px;background:var(--line);border-radius:3px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--gold)}
+.delta{display:block;font-size:11px}
+.stars{color:var(--gold);letter-spacing:1px;font-size:13px}.stars .off{color:var(--line)}
+.ago{display:block;font-size:11px;color:var(--muted)}
+/* phone cards */
+.cards{display:none;gap:12px}
+.sortbar{display:none;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;min-width:0}
+.card .top{display:grid;grid-template-columns:64px minmax(0,1fr);gap:12px;align-items:center}
+.card img{width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--line);background:var(--line)}
+.card a.t{font-size:15px;line-height:1.3;display:block}
+.card .rate{margin-top:4px;display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
+.card .rate .ago{display:inline}
+.card .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px 8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.card .stats .k{font-size:10px}
+.card .stats .v{font:600 16px var(--mono);font-variant-numeric:tabular-nums}
+.card .stats .delta{display:inline;margin-left:4px}
+.card .subbar{height:4px;background:var(--line);border-radius:2px;overflow:hidden;margin-top:10px}
+.card .subbar i{display:block;height:100%;background:var(--gold)}
+footer{margin-top:14px;color:var(--muted);font-size:12px}
+/* comments */
+.bell{display:inline-flex;align-items:center;gap:6px}
+.bell svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2}
+.badge{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--accent);color:#fff;font:600 11px/18px var(--body);text-align:center}
+.bell[aria-expanded="true"]{border-color:var(--accent)}
+#inbox{background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-bottom:20px}
+.bar2{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line)}
+#inbox h2{font:700 15px var(--display);letter-spacing:.04em;margin:0}
+.tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+select{font:13px var(--body);color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 8px;min-height:34px;max-width:100%}
+.clist{max-height:460px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.c{display:grid;grid-template-columns:36px minmax(0,1fr);gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);border-left:3px solid transparent;cursor:pointer}
+.c:last-child{border-bottom:0}
+.c:hover{background:color-mix(in srgb,var(--bar) 22%,transparent)}
+.c:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.c.new{border-left-color:var(--accent);background:color-mix(in srgb,var(--accent) 7%,transparent)}
+.c.mine{opacity:.6}
+.c img{width:36px;height:36px;border-radius:4px;background:var(--line)}
+.c .who{font-size:12px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline}
+.c .who a{color:var(--ink);font-weight:600;text-decoration:none}.c .who a:hover{color:var(--accent);text-decoration:underline}
+.c .txt{margin-top:3px;white-space:pre-wrap;overflow-wrap:anywhere}
+.pill.new{color:var(--accent);border-color:var(--accent)}
+.empty{padding:24px 14px;color:var(--muted);text-align:center}
+.err{background:color-mix(in srgb,var(--down) 12%,var(--panel));border:1px solid var(--down);padding:10px 14px;border-radius:8px;margin-bottom:16px}
+@media (max-width:720px){
+  h1{font-size:22px}
+  header{align-items:flex-start}
+  .status{width:100%;justify-content:space-between}
+  .tiles{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .tile .v{font-size:20px}
+  .tile:last-child:nth-child(odd){grid-column:1/-1}
+  .wrap{display:none}
+  .cards{display:grid}
+  .sortbar{display:flex}
+  .clist{max-height:65vh}
+  .c{padding:12px}
+}
+</style>
+</head>
+<body>
+<div class="page">
+<header>
+  <h1>Workshop Ledger<small>Crusader Kings III · your Steam Workshop mods</small></h1>
+  <div class="status">
+    <span class="when"><span class="dot busy" id="dot"></span><span id="when">Loading…</span></span>
+    <span class="btns">
+      <button id="bell" class="bell" type="button" aria-expanded="false" aria-controls="inbox"><svg viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>Comments<span class="badge" id="badge" hidden>0</span></button>
+      <button id="refresh" type="button">Reload</button>
+    </span>
+  </div>
+</header>
+<section id="inbox" hidden>
+  <div class="bar2"><h2>Latest comments</h2>
+    <div class="tools"><select id="cfilter" aria-label="Filter by mod"><option value="">All mods</option></select>
+      <button id="markread" type="button">Mark all read</button></div></div>
+  <div class="clist" id="clist"><div class="empty">Loading comments…</div></div>
+</section>
+<div id="error" hidden class="err"></div>
+<section class="tiles" id="tiles"></section>
+<section class="spark"><div class="k">Total current subscribers over time</div><svg id="spark" viewBox="0 0 1000 70" preserveAspectRatio="none"></svg><div class="note" id="sparknote"></div></section>
+<div class="sortbar"><span class="k">Your mods</span><select id="sortsel" aria-label="Sort mods by"></select></div>
+<div class="cards" id="cards"></div>
+<div class="wrap"><table>
+  <thead><tr id="head"></tr></thead>
+  <tbody id="rows"><tr><td colspan="9" style="text-align:center;color:var(--muted);padding:30px">Loading your mods…</td></tr></tbody>
+</table></div>
+<footer>Steam data is collected every ~15 minutes. Green/red numbers are gains over the last 24 hours. Sub rate = current subscribers ÷ unique visitors. Steam keeps ratings anonymous, so only the score and count are shown.</footer>
+</div>
+<script>
+const fmt=n=>n==null?'–':n.toLocaleString('en-US');
+const size=b=>b>1e9?(b/1e9).toFixed(2)+' GB':(b/1e6).toFixed(1)+' MB';
+const date=t=>new Date(t*1000).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'});
+function ago(t){const s=Date.now()/1000-t;if(s<90)return 'just now';if(s<3600)return Math.round(s/60)+' min ago';if(s<86400)return Math.round(s/3600)+' h ago';return Math.round(s/86400)+' d ago'}
+const dlt=(v)=>v==null||v===0?'':`<span class="delta ${v>0?'up':'down'}">${v>0?'+':''}${fmt(v)}</span>`;
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const store={get(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+const cols=[
+ {k:'title',l:'Mod'},{k:'stars',l:'Rating'},{k:'subs',l:'Subscribers'},{k:'lifetime_subs',l:'Lifetime subs'},{k:'favorites',l:'Favorites'},
+ {k:'visitors',l:'Visitors'},{k:'rate',l:'Sub rate'},{k:'comments',l:'Comments'},{k:'size',l:'Size'}];
+let sortKey='subs',sortDir=-1,data=null;
+{const s=store.get('wl-sort');if(s&&cols.some(c=>c.k===s.k)){sortKey=s.k;sortDir=s.d}}
+function setSort(k,d){sortKey=k;sortDir=d;store.set('wl-sort',{k,d});render()}
+function head(){
+ document.getElementById('head').innerHTML=cols.map(c=>`<th data-k="${c.k}" class="${c.k===sortKey?'sorted':''}">${c.l}${c.k===sortKey?(sortDir<0?' ▾':' ▴'):''}</th>`).join('');
+ document.getElementById('sortsel').innerHTML=cols.filter(c=>c.k!=='size').map(c=>`<option value="${c.k}" ${c.k===sortKey?'selected':''}>Sort: ${c.k==='title'?'Name':c.l}</option>`).join('');
+}
+document.getElementById('head').addEventListener('click',e=>{const k=e.target.closest('th')?.dataset.k;if(!k)return;setSort(k,k===sortKey?-sortDir:(k==='title'?1:-1))});
+document.getElementById('sortsel').addEventListener('change',e=>{const k=e.target.value;setSort(k,k==='title'?1:-1)});
+function stars(m,inline){if(m.pending)return `<span class="ago">loading…</span>`;if(m.stars==null)return `<span class="sub">not enough ratings yet</span>`;
+ return `<span class="stars">${'★'.repeat(m.stars)}<span class="off">${'★'.repeat(5-m.stars)}</span></span><span class="ago">${fmt(m.ratings)} ratings</span>`}
+const link=id=>`https://steamcommunity.com/sharedfiles/filedetails/?id=${id}`;
+function render(){
+ if(!data)return;head();
+ const mods=data.mods.map(m=>({...m,rate:m.visitors?m.subs/m.visitors:0}));
+ mods.sort((a,b)=>{const x=a[sortKey],y=b[sortKey];return (typeof x==='string'?x.localeCompare(y):(x??-1)-(y??-1))*sortDir});
+ const max=Math.max(...mods.map(m=>m.subs),1);
+ const vis=m=>m.visibility!=='Public'?`<span class="pill warn">${m.visibility}</span>`:'';
+ document.getElementById('rows').innerHTML=mods.map(m=>`<tr>
+  <td><div class="mod"><img src="${esc(m.preview)}" alt="" loading="lazy" referrerpolicy="no-referrer"><div><a href="${link(m.id)}" target="_blank" rel="noopener">${esc(m.title)}</a>${vis(m)}<div class="sub">${m.id}${m.tags.length?' · '+esc(m.tags.slice(0,3).join(', ')):''}</div></div></div></td>
+  <td>${stars(m)}</td>
+  <td class="num"><div class="subs"><div class="bar"><i style="width:${m.subs/max*100}%"></i></div>${fmt(m.subs)}</div>${dlt(m.d1&&m.d1.subs)}</td>
+  <td class="num">${fmt(m.lifetime_subs)}</td>
+  <td class="num">${fmt(m.favorites)}${dlt(m.d1&&m.d1.favorites)}</td>
+  <td class="num">${fmt(m.visitors)}</td>
+  <td class="num">${m.visitors?(m.rate*100).toFixed(1)+'%':'–'}</td>
+  <td class="num"><a href="https://steamcommunity.com/sharedfiles/filedetails/comments/${m.id}" target="_blank" rel="noopener" style="color:inherit">${fmt(m.comments)}</a>${dlt(m.d1&&m.d1.comments)}</td>
+  <td class="num">${size(m.size)}</td></tr>`).join('');
+ const st=(k,v,d)=>`<div><div class="k">${k}</div><div class="v">${v}${d||''}</div></div>`;
+ document.getElementById('cards').innerHTML=mods.map(m=>`<article class="card">
+  <div class="top"><img src="${esc(m.preview)}" alt="" loading="lazy" referrerpolicy="no-referrer">
+   <div style="min-width:0"><a class="t" href="${link(m.id)}" target="_blank" rel="noopener">${esc(m.title)}</a>${vis(m)}
+    <div class="rate">${stars(m)}</div></div></div>
+  <div class="subbar"><i style="width:${m.subs/max*100}%"></i></div>
+  <div class="stats">
+   ${st('Subscribers',fmt(m.subs),dlt(m.d1&&m.d1.subs))}
+   ${st('Favorites',fmt(m.favorites),dlt(m.d1&&m.d1.favorites))}
+   ${st('Comments',`<a href="https://steamcommunity.com/sharedfiles/filedetails/comments/${m.id}" target="_blank" rel="noopener" style="color:inherit">${fmt(m.comments)}</a>`,dlt(m.d1&&m.d1.comments))}
+   ${st('Visitors',fmt(m.visitors))}
+   ${st('Sub rate',m.visitors?(m.rate*100).toFixed(1)+'%':'–')}
+   ${st('Lifetime',fmt(m.lifetime_subs))}
+  </div></article>`).join('');
+ const sum=k=>data.mods.reduce((a,m)=>a+(m[k]||0),0);
+ const sumd=k=>data.mods.some(m=>m.d1)?data.mods.reduce((a,m)=>a+((m.d1&&m.d1[k])||0),0):null;
+ const tile=(k,v,d,extra='')=>`<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="d">${d!=null?`<span class="${d>0?'up':d<0?'down':''}">${d>0?'+':''}${fmt(d)}</span> last 24h`:extra}</div></div>`;
+ const rated=data.mods.filter(m=>m.stars!=null);
+ document.getElementById('tiles').innerHTML=
+  tile('Ratings',fmt(sum('ratings')),null,rated.length?`avg ${(rated.reduce((a,m)=>a+m.stars,0)/rated.length).toFixed(1)} ★`:'')+
+  tile('Subscribers',fmt(sum('subs')),sumd('subs'),`${fmt(sum('lifetime_subs'))} lifetime`)+
+  tile('Favorites',fmt(sum('favorites')),sumd('favorites'))+
+  tile('Unique visitors',fmt(sum('visitors')),sumd('visitors'))+
+  tile('Comments',fmt(sum('comments')),sumd('comments'));
+ spark();showWhen();
+}
+function showWhen(){
+ if(!data)return;const old=Date.now()/1000-data.fetched>3600;
+ document.getElementById('dot').className='dot'+(old?' old':'');
+ document.getElementById('when').textContent=`Steam data from ${ago(data.fetched)}`+(old?' (update delayed)':'');
+}
+function spark(){
+ const s=data.series,svg=document.getElementById('spark'),note=document.getElementById('sparknote');
+ if(s.length<2){svg.innerHTML='';note.textContent='The trend line fills in as snapshots build up (one every 30 minutes).';return}
+ const t0=s[0].t,t1=s[s.length-1].t||t0+1,lo=Math.min(...s.map(p=>p.subs)),hi=Math.max(...s.map(p=>p.subs));
+ const x=t=>(t-t0)/(t1-t0||1)*1000,y=v=>64-(v-lo)/((hi-lo)||1)*58;
+ const pts=s.map(p=>`${x(p.t).toFixed(1)},${y(p.subs).toFixed(1)}`).join(' ');
+ svg.innerHTML=`<polygon points="0,70 ${pts} 1000,70" fill="var(--bar)" opacity=".45"/><polyline points="${pts}" fill="none" stroke="var(--gold)" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
+ note.textContent=`${fmt(s[0].subs)} on ${date(t0)} → ${fmt(s[s.length-1].subs)} now (${s.length} snapshots)`;
+}
+async function getJSON(p){const r=await fetch(p+'?t='+Date.now(),{cache:'no-store'});if(!r.ok)throw new Error(r.status+' '+r.statusText);return r.json()}
+async function load(){
+ const dot=document.getElementById('dot'),err=document.getElementById('error');dot.className='dot busy';
+ try{data=await getJSON('data/stats.json');err.hidden=true;render()}
+ catch(e){dot.className='dot err';err.hidden=false;err.textContent='Could not load the stats ('+e.message+'). Check your connection and press Reload.'}
+ loadComments();
+}
+document.getElementById('refresh').onclick=load;
+
+/* ---- comments inbox: read/unread is remembered on each device ---- */
+let cdata=null,seen=store.get('wl-seen');
+if(seen==null){seen=Math.floor(Date.now()/1000)-86400;store.set('wl-seen',seen)}
+const inbox=document.getElementById('inbox'),bell=document.getElementById('bell');
+function renderComments(){
+ if(!cdata)return;
+ const n=cdata.items.filter(c=>!c.mine&&c.t>seen).length,badge=document.getElementById('badge');
+ badge.hidden=!n;badge.textContent=n;document.title=(n?`(${n}) `:'')+'Workshop Ledger';
+ const sel=document.getElementById('cfilter'),cur=sel.value;
+ const mods=[...new Map(cdata.items.map(c=>[c.mod,c.title])).entries()];
+ sel.innerHTML='<option value="">All mods</option>'+mods.map(([id,t])=>`<option value="${id}">${esc(t)}</option>`).join('');sel.value=cur;
+ const list=cdata.items.filter(c=>!sel.value||c.mod===sel.value);
+ document.getElementById('clist').innerHTML=!list.length?'<div class="empty">No comments yet.</div>':
+  list.map(c=>{const isNew=!c.mine&&c.t>seen;
+   return `<article class="c ${isNew?'new':''} ${c.mine?'mine':''}" data-url="${esc(c.url)}" tabindex="0" title="Open this comment on Steam">
+   <img src="${esc(c.avatar)}" alt="" loading="lazy" referrerpolicy="no-referrer">
+   <div><div class="who"><a href="${esc(c.profile)}" target="_blank" rel="noopener">${esc(c.author)}</a>
+    ${c.mine?'<span class="pill">you</span>':''}${isNew?'<span class="pill new">new</span>':''}
+    <span>on <a href="https://steamcommunity.com/sharedfiles/filedetails/comments/${c.mod}" target="_blank" rel="noopener" style="font-weight:500">${esc(c.title)}</a></span>
+    <span title="${new Date(c.t*1000).toLocaleString()}">${ago(c.t)}</span></div>
+   <div class="txt">${esc(c.text)}</div></div></article>`}).join('');
+}
+async function loadComments(){try{cdata=await getJSON('data/comments.json');renderComments()}catch(e){}}
+bell.onclick=()=>{inbox.hidden=!inbox.hidden;bell.setAttribute('aria-expanded',String(!inbox.hidden))};
+document.getElementById('cfilter').onchange=renderComments;
+function openComment(e){const art=e.target.closest('article.c');if(!art||e.target.closest('a'))return;
+ if(e.type==='keydown'&&e.key!=='Enter')return;window.open(art.dataset.url,'_blank','noopener')}
+document.getElementById('clist').addEventListener('click',openComment);
+document.getElementById('clist').addEventListener('keydown',openComment);
+document.getElementById('markread').onclick=()=>{
+ seen=cdata&&cdata.items.length?Math.max(...cdata.items.map(c=>c.t)):Math.floor(Date.now()/1000);
+ store.set('wl-seen',seen);renderComments()};
+if(location.hash==='#comments'){inbox.hidden=false;bell.setAttribute('aria-expanded','true')}
+
+head();load();
+setInterval(load,300000);setInterval(showWhen,60000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)load()});
+</script>
+</body>
+</html>

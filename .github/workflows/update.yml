@@ -1,0 +1,51 @@
+name: Update Workshop stats
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # GitHub may run it a few minutes late
+  workflow_dispatch: {}       # "Run workflow" button for an update right now
+  push:
+    branches: [main]
+    paths: ["docs/index.html", "fetch.py", ".github/workflows/update.yml"]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch Steam data
+        run: python fetch.py
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+
+      - name: Save state
+        run: |
+          git config user.name "workshop-ledger-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/data state
+          git diff --cached --quiet || git commit -q -m "Update stats [skip ci]"
+          git push -q || (git pull -q --rebase && git push -q)
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - id: deploy
+        uses: actions/deploy-pages@v4
