@@ -84,7 +84,7 @@ def vote_counts(ids):
         js = json.loads(get("https://api.steampowered.com/IPublishedFileService/GetDetails/v1/?"
                             + urllib.parse.urlencode(q)))
     except Exception as e:
-        print("vote counts failed:", type(e).__name__)  # never print the key
+        print("vote counts failed:", getattr(e, "code", type(e).__name__))  # never print the key
         return {}
     out = {}
     for d in js.get("response", {}).get("publishedfiledetails", []):
