@@ -149,7 +149,8 @@ def run(my_ids, state_dir, out_path, notify, now, read_json, write_json):
 
     def board(order):
         rows = [row(fid, n + 1) for n, fid in enumerate(order[:TOP])]
-        rows += [row(fid, rank_of(order, fid)) for fid in mine if fid not in order[:TOP] and rank_of(order, fid)]
+        rows += sorted((row(fid, rank_of(order, fid)) for fid in mine
+                        if fid not in order[:TOP] and rank_of(order, fid)), key=lambda r: r["rank"])
         return rows
 
     # Rank history (to show climbs over 24 h)
@@ -176,12 +177,14 @@ def run(my_ids, state_dir, out_path, notify, now, read_json, write_json):
             if not first_run:
                 names = ", ".join(info.get(m, {}).get("title", m) for m in mods)
                 notify(f"New collection: {d.get('title', 'untitled')}",
-                       f"Includes {names} · {d.get('subscriptions', 0):,} subscribers",
+                       f"Includes {names} · {d.get('views', 0):,} visitors",
                        f"https://steamcommunity.com/sharedfiles/filedetails/?id={cid}")
         collections.append({"id": cid, "title": d.get("title", "(private or hidden)"),
-                            "subs": d.get("subscriptions", 0), "items": d.get("num_children"),
+                            "views": d.get("views", 0), "favorites": d.get("favorited", 0),
+                            "items": d.get("num_children"),
                             "mods": mods, "first_seen": first_seen[cid]})
-    collections.sort(key=lambda c: -(c["subs"] or 0))
+    # Steam counts no subscribers on collections, so rank them by visitors
+    collections.sort(key=lambda c: -(c["views"] or 0))
 
     # Milestone alerts: one of your mods enters the AGOT top 10
     for fid in mine:
