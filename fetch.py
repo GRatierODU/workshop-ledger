@@ -151,27 +151,8 @@ def notify(title, message, click):
         print("ntfy failed:", e)
 
 
-def main():
-    now = int(time.time())
-    ids = discover_ids()
-    details = api_details(ids)
-    titles = {d["publishedfileid"]: d.get("title", "") for d in details}
-
-    # Workshop pages (rating, comments...). Keep the last good values when Steam refuses.
-    extras = read_json("page_cache.json", {})
-    # Only the star rating needs the page, and it changes slowly: refresh the
-    # PAGES_PER_RUN stalest mods each run (never-fetched first).
-    todo = sorted((d["publishedfileid"] for d in details), key=lambda f: extras.get(f, {}).get("t", 0))
-    for fid in todo[:PAGES_PER_RUN]:
-        e = page_extras(fid)
-        if e:
-            extras[fid] = e
-        else:
-            print("Workshop page refused for", fid)
-        time.sleep(PAUSE)
-    write_json(os.path.join(STATE, "page_cache.json"), extras)
-
-    # Comments, and phone alerts for new ones by other people.
+def check_comments(titles):
+    """Fetch the latest comments of every mod and push alerts for new ones."""
     store = read_json("comments.json", {})
     totals = read_json("comment_totals.json", {})
     first_run = not store
@@ -192,6 +173,59 @@ def main():
             notify(f"New comment on {titles.get(c['mod'], 'your mod')}", f"{c['author']}: {c['text']}", c["url"])
         if len(new) > 5:
             notify(f"{len(new)} new Workshop comments", "Open Workshop Ledger to read them all.", "")
+    return store, totals, new
+
+
+def write_comments_page(store, titles, now):
+    comments = [dict(c, title=titles.get(fid, fid)) for fid, items in store.items()
+                if fid in titles for c in items]
+    comments.sort(key=lambda c: -c["t"])
+    write_json(os.path.join(OUT, "comments.json"), {"fetched": now, "items": comments[:150]})
+    return len(comments)
+
+
+def comments_only():
+    """Quick run (every 5 min): comments and alerts only, no Steam pages or stats."""
+    now = int(time.time())
+    try:
+        with open(os.path.join(OUT, "stats.json"), encoding="utf-8") as f:
+            stats = json.load(f)
+    except Exception:
+        print("no stats.json yet; run the full update first")
+        return
+    titles = {m["id"]: m["title"] for m in stats["mods"]}
+    store, totals, new = check_comments(titles)
+    if not new:
+        print("no new comments")
+        return
+    write_comments_page(store, titles, now)
+    for m in stats["mods"]:
+        m["comments"] = totals.get(m["id"], m["comments"])
+    write_json(os.path.join(OUT, "stats.json"), stats)
+    print(f"{len(new)} new comments")
+
+
+def main():
+    now = int(time.time())
+    ids = discover_ids()
+    details = api_details(ids)
+    titles = {d["publishedfileid"]: d.get("title", "") for d in details}
+
+    # Workshop pages (rating, comments...). Keep the last good values when Steam refuses.
+    extras = read_json("page_cache.json", {})
+    # Only the star rating needs the page, and it changes slowly: refresh the
+    # PAGES_PER_RUN stalest mods each run (never-fetched first).
+    todo = sorted((d["publishedfileid"] for d in details), key=lambda f: extras.get(f, {}).get("t", 0))
+    for fid in todo[:PAGES_PER_RUN]:
+        e = page_extras(fid)
+        if e:
+            extras[fid] = e
+        else:
+            print("Workshop page refused for", fid)
+        time.sleep(PAUSE)
+    write_json(os.path.join(STATE, "page_cache.json"), extras)
+
+    store, totals, new = check_comments(titles)
 
     mods = []
     for d in details:
@@ -202,7 +236,8 @@ def main():
             "visibility": {0: "Public", 1: "Friends", 2: "Private", 3: "Unlisted"}.get(d.get("visibility"), "?"),
             "subs": d.get("subscriptions", 0), "lifetime_subs": d.get("lifetime_subscriptions", 0),
             "favorites": d.get("favorited", 0), "views": d.get("views", 0),
-            "visitors": d.get("views", 0),  # the API's views = unique visitors "size": int(d.get("file_size") or 0),
+            "visitors": d.get("views", 0),  # the API's views = unique visitors
+            "size": int(d.get("file_size") or 0),
             "created": d.get("time_created", 0), "updated": d.get("time_updated", 0),
             "tags": [t["tag"] for t in d.get("tags", [])],
             "stars": e.get("stars"), "ratings": e.get("ratings"), "comments": totals.get(fid, e.get("comments")),
@@ -228,12 +263,10 @@ def main():
               for s in hist][-500:]
 
     write_json(os.path.join(OUT, "stats.json"), {"fetched": now, "mods": mods, "series": series})
-    comments = [dict(c, title=titles.get(fid, fid)) for fid, items in store.items()
-                if fid in titles for c in items]
-    comments.sort(key=lambda c: -c["t"])
-    write_json(os.path.join(OUT, "comments.json"), {"fetched": now, "items": comments[:150]})
-    print(f"{len(mods)} mods, {len(comments)} comments, {len(new)} new")
+    n_comments = write_comments_page(store, titles, now)
+    print(f"{len(mods)} mods, {n_comments} comments, {len(new)} new")
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    comments_only() if "--comments" in sys.argv else main()

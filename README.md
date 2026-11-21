@@ -4,6 +4,6 @@ A live dashboard for my Crusader Kings III Steam Workshop mods: subscribers, fav
 
 - **Page:** `docs/index.html`, served by GitHub Pages.
 - **Data:** `fetch.py` runs in GitHub Actions every ~15 minutes, reads public Steam data and writes `docs/data/*.json`. `state/` keeps history and known comments between runs.
-- **Phone alerts:** new comments by other people are pushed through [ntfy](https://ntfy.sh) to the topic in the `NTFY_TOPIC` repository secret.
+- **Phone alerts:** `fetch.py --comments` runs every ~5 minutes (Check new comments workflow) and pushes new comments by other people through [ntfy](https://ntfy.sh) to the topic in the `NTFY_TOPIC` repository secret.
 - **Update right now:** Actions → "Update Workshop stats" → Run workflow.
 - **Hide a mod:** add its id to `HIDDEN_IDS` in `fetch.py`.
