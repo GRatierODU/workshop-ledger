@@ -3,7 +3,10 @@
 Fetches public Steam data for every Workshop item on the profile below and writes
   docs/data/stats.json      what the page shows (mods, 24 h gains, subscriber trend)
   docs/data/comments.json   latest comments across all mods
-  state/*.json              memory between runs (history, last good page data, known comments)
+  state/*.json              memory between runs (history, known comments, milestones)
+Everything that the Steam Web API offers comes from it (STEAM_API_KEY secret). Only
+comment text comes from the comment feed (no API exists for it), and one Workshop page
+per run cross-checks the star rating.
 New comments by other people are pushed to the phone through ntfy when the
 NTFY_TOPIC secret is set.
 """
@@ -21,7 +24,6 @@ MY_ACCOUNT = str(int(STEAM_ID) - 76561197960265728)  # your own replies never no
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "").strip()
 STEAM_API_KEY = os.environ.get("STEAM_API_KEY", "").strip()  # optional: enables up/down vote counts
 PAUSE = 4  # seconds between steamcommunity.com requests (it answers 429 to bursts)
-PAGES_PER_RUN = 2  # Workshop pages are rate-limited hard; ratings refresh in rotation
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "docs", "data")
@@ -80,62 +82,34 @@ def discover_ids():
     return [i for i in ids if i not in HIDDEN_IDS]
 
 
-def vote_counts(ids):
-    """Thumbs up / down and report count per mod (needs the Web API key)."""
-    if not STEAM_API_KEY:
-        return {}
-    out = {}
-    for fid, d in insights.details(ids).items():
-        v = d.get("vote_data") or {}
-        out[fid] = {"up": v.get("votes_up", 0), "down": v.get("votes_down", 0),
-                    "reports": d.get("num_reports", 0), "score": v.get("score")}
-    return out
+def api_details(ids):
+    """Keyless fallback (ISteamRemoteStorage) used only when the Web API key is missing."""
+    form = {"itemcount": len(ids)}
+    for n, i in enumerate(ids):
+        form[f"publishedfileids[{n}]"] = i
+    js = json.loads(get("https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/",
+                        urllib.parse.urlencode(form).encode()))
+    return {d["publishedfileid"]: d for d in js["response"]["publishedfiledetails"] if d.get("result") == 1}
 
 
-def rating_alerts(votes, extras, old_stars, titles):
-    """Phone alerts for new downvotes, reports, and star rating changes."""
-    prev = read_json("votes.json", None)
-    if votes:
-        write_json(os.path.join(STATE, "votes.json"), votes)
-    page = lambda fid: f"https://steamcommunity.com/sharedfiles/filedetails/?id={fid}"
-    for fid, v in votes.items():
-        was = (prev or {}).get(fid)
-        if not was:
-            continue
-        name = titles.get(fid, fid)
-        if v["down"] > was["down"]:
-            n = v["down"] - was["down"]
-            total = v["up"] + v["down"]
-            notify(f"{name}: {n} new downvote{'s' if n > 1 else ''}",
-                   f"Now {v['up']:,} up · {v['down']:,} down ({round(v['up'] / total * 100)}% positive).", page(fid))
-        if v.get("reports", 0) > was.get("reports", 0):
-            notify(f"{name} was reported", f"{v['reports']} report(s) on Steam. Worth checking the comments.", page(fid))
-    for fid, stars in old_stars.items():
-        new = extras.get(fid, {}).get("stars")
-        # Rises are covered by the star milestones; only warn about drops here.
-        if "stars" in extras.get(fid, {}) and stars is not None and new is not None and new < stars:
-            notify(f"{titles.get(fid, fid)}: rating down to {new} stars",
-                   f"Was {stars} stars.", page(fid))
+def steam_details(ids):
+    """Everything per mod from one API call: stats, votes, comment count, reports."""
+    if STEAM_API_KEY:
+        d = insights.details(ids)
+        if d:
+            return d, True
+    return api_details(ids), False
 
 
 MIN_RATED_VOTES = 26  # observed: 25 votes showed "not enough ratings", 26 showed stars
 
 
 def stars_from_score(score, votes):
-    """Estimate Steam's star image from the API vote score (checked against 3 mods:
-    0.648 -> 4, 0.598 -> 3, 0.592 -> 3). Used only while the Workshop page is stale."""
+    """Steam's star image from the API vote score (matches every mod with stars so far:
+    0.648 -> 4, 0.598 -> 3, 0.592 -> 3)."""
     if score is None or votes < MIN_RATED_VOTES:
         return None
     return 5 if score >= 0.8 else 4 if score >= 0.6 else 3 if score >= 0.4 else 2 if score >= 0.2 else 1
-
-
-def api_details(ids):
-    form = {"itemcount": len(ids)}
-    for n, i in enumerate(ids):
-        form[f"publishedfileids[{n}]"] = i
-    js = json.loads(get("https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/",
-                        urllib.parse.urlencode(form).encode()))
-    return [d for d in js["response"]["publishedfiledetails"] if d.get("result") == 1]
 
 
 def num(rx, html):
@@ -158,6 +132,30 @@ def page_extras(fid):
             "changenotes": num(r"([\d,]+) Change Notes", html) or 0,
             "visitors": num(r"<td>([\d,]+)</td>\s*<td>Unique Visitors", html),
             "t": int(time.time())}
+
+
+def check_stars(mods):
+    """Cross-check one Workshop page per run against the API-based stars. If the page
+    disagrees (same vote count), its value is kept as an override until votes change."""
+    overrides = read_json("star_overrides.json", {})
+    checked = read_json("star_checked.json", {})
+    if not mods:
+        return overrides
+    # the mod whose vote count changed since its last check first, then the stalest
+    todo = sorted(mods, key=lambda m: (checked.get(m["id"], {}).get("ratings") == m["ratings"],
+                                       checked.get(m["id"], {}).get("t", 0)))
+    m = todo[0]
+    e = page_extras(m["id"])
+    if e is None:
+        print("Workshop page refused for", m["id"], "(stars stay API-based)")
+        return overrides
+    checked[m["id"]] = {"t": e["t"], "ratings": e["ratings"]}
+    write_json(os.path.join(STATE, "star_checked.json"), checked)
+    if e["ratings"] == m["ratings"] and e["stars"] != m["stars"]:
+        print(f"stars: page says {e['stars']} for {m['id']}, API estimate {m['stars']}; using the page")
+        overrides[m["id"]] = {"stars": e["stars"], "ratings": e["ratings"]}
+        write_json(os.path.join(STATE, "star_overrides.json"), overrides)
+    return overrides
 
 
 def clean(text):
@@ -208,13 +206,35 @@ def notify(title, message, click):
         print("ntfy failed:", e)
 
 
-def check_comments(titles):
-    """Fetch the latest comments of every mod and push alerts for new ones."""
+def rating_alerts(mods, prev_mods, titles):
+    """Phone alerts for new downvotes, reports, and star drops (rises are milestones)."""
+    page = lambda fid: f"https://steamcommunity.com/sharedfiles/filedetails/?id={fid}"
+    for m in mods:
+        was = prev_mods.get(m["id"])
+        if not was or m.get("up") is None or was.get("up") is None:
+            continue
+        name = titles.get(m["id"], m["id"])
+        if m["down"] > was["down"]:
+            n = m["down"] - was["down"]
+            total = m["up"] + m["down"]
+            notify(f"{name}: {n} new downvote{'s' if n > 1 else ''}",
+                   f"Now {m['up']:,} up · {m['down']:,} down ({round(m['up'] / total * 100)}% positive).", page(m["id"]))
+        if (m.get("reports") or 0) > (was.get("reports") or 0):
+            notify(f"{name} was reported", f"{m['reports']} report(s) on Steam. Worth checking the comments.", page(m["id"]))
+        if m.get("stars") and was.get("stars") and m["stars"] < was["stars"]:
+            notify(f"{name}: rating down to {m['stars']} stars", f"Was {was['stars']} stars.", page(m["id"]))
+
+
+def check_comments(titles, counts=None):
+    """Load comment feeds and alert on new comments. With `counts` (from the API), only
+    mods whose comment count changed are loaded: fewer requests Steam can refuse."""
     store = read_json("comments.json", {})
     totals = read_json("comment_totals.json", {})
     first_run = not store
     new = []
     for fid in titles:
+        if counts is not None and fid in store and counts.get(fid) == totals.get(fid):
+            continue  # nothing new on this mod
         res = fetch_comments(fid)
         if res is not None:
             items, totals[fid] = res
@@ -241,8 +261,12 @@ def write_comments_page(store, titles, now):
     return len(comments)
 
 
+def comment_counts(details):
+    return {fid: d["num_comments_public"] for fid, d in details.items() if "num_comments_public" in d}
+
+
 def comments_only():
-    """Quick run (every 5 min): comments and alerts only, no Steam pages or stats."""
+    """Quick run (every 5 min): comments and alerts only."""
     now = int(time.time())
     try:
         with open(os.path.join(OUT, "stats.json"), encoding="utf-8") as f:
@@ -251,14 +275,15 @@ def comments_only():
         print("no stats.json yet; run the full update first")
         return
     titles = {m["id"]: m["title"] for m in stats["mods"]}
-    rating_alerts(votes, extras, old_stars, titles)
-    store, totals, new = check_comments(titles)
+    details, keyed = steam_details(list(titles))
+    counts = comment_counts(details) if keyed else None
+    store, totals, new = check_comments(titles, counts)
     if not new:
         print("no new comments")
         return
     write_comments_page(store, titles, now)
     for m in stats["mods"]:
-        m["comments"] = totals.get(m["id"], m["comments"])
+        m["comments"] = (counts or totals).get(m["id"], m["comments"])
     write_json(os.path.join(OUT, "stats.json"), stats)
     print(f"{len(new)} new comments")
 
@@ -266,50 +291,25 @@ def comments_only():
 def main():
     now = int(time.time())
     ids = discover_ids()
-    details = api_details(ids)
-    votes = vote_counts([d["publishedfileid"] for d in details])
-    titles = {d["publishedfileid"]: d.get("title", "") for d in details}
+    details, keyed = steam_details(ids)
+    titles = {fid: d.get("title", "") for fid, d in details.items()}
+    try:
+        with open(os.path.join(OUT, "stats.json"), encoding="utf-8") as f:
+            prev_mods = {m["id"]: m for m in json.load(f)["mods"]}
+    except Exception:
+        prev_mods = {}
 
-    # Workshop pages (rating, comments...). Keep the last good values when Steam refuses.
-    extras = read_json("page_cache.json", {})
-    old_stars = {fid: e.get("stars") for fid, e in extras.items() if "stars" in e}
-    # Only the star rating needs the page, and it changes slowly: refresh the
-    # PAGES_PER_RUN stalest mods each run (never-fetched first).
-    def changed(f):
-        v = votes.get(f)
-        return bool(v) and extras.get(f, {}).get("ratings") != v["up"] + v["down"]
-    todo = sorted((d["publishedfileid"] for d in details),
-                  key=lambda f: (not changed(f), extras.get(f, {}).get("t", 0)))
-    for fid in todo[:PAGES_PER_RUN]:
-        e = page_extras(fid)
-        if e:
-            extras[fid] = e
-        else:
-            print("Workshop page refused for", fid)
-        time.sleep(PAUSE)
-    write_json(os.path.join(STATE, "page_cache.json"), extras)
-
-    rating_alerts(votes, extras, old_stars, titles)
-    store, totals, new = check_comments(titles)
-
-    def rating(e, v):
-        """Stars from the Workshop page when it matches the live vote count; otherwise
-        an estimate from the API score (shown with a "≈" on the page)."""
-        if not v:
-            return {"stars": e.get("stars"), "ratings": e.get("ratings"), "pending": "stars" not in e}
-        total = v["up"] + v["down"]
-        if "stars" in e and e.get("ratings") == total:
-            return {"stars": e["stars"], "ratings": total, "pending": False}
-        est = stars_from_score(v.get("score"), total)
-        if est is None and total < MIN_RATED_VOTES:
-            return {"stars": None, "ratings": total, "pending": False}
-        return {"stars": est if est is not None else e.get("stars"), "ratings": total,
-                "pending": False, "estimated": True}
+    counts = comment_counts(details) if keyed else None
+    store, totals, new = check_comments(titles, counts)
 
     mods = []
-    for d in details:
-        fid = d["publishedfileid"]
-        e = extras.get(fid, {})
+    for fid in ids:
+        d = details.get(fid)
+        if not d:
+            continue
+        v = d.get("vote_data") or {}
+        up, down = (v.get("votes_up"), v.get("votes_down")) if v else (None, None)
+        ratings = up + down if up is not None else None
         mods.append({
             "id": fid, "title": d.get("title", ""), "preview": d.get("preview_url", ""),
             "visibility": {0: "Public", 1: "Friends", 2: "Private", 3: "Unlisted"}.get(d.get("visibility"), "?"),
@@ -318,11 +318,21 @@ def main():
             "visitors": d.get("views", 0),  # the API's views = unique visitors
             "size": int(d.get("file_size") or 0),
             "created": d.get("time_created", 0), "updated": d.get("time_updated", 0),
-            "tags": [t["tag"] for t in d.get("tags", [])],
-            **rating(e, votes.get(fid)), "comments": totals.get(fid, e.get("comments")),
-            "changenotes": e.get("changenotes"),
-            "up": votes.get(fid, {}).get("up"), "down": votes.get(fid, {}).get("down"),
+            "tags": [t["tag"] for t in d.get("tags", []) if isinstance(t, dict)],
+            "stars": stars_from_score(v.get("score"), ratings or 0) if ratings is not None else None,
+            "ratings": ratings, "up": up, "down": down, "reports": d.get("num_reports"),
+            "comments": (counts or {}).get(fid, totals.get(fid)),
+            "pending": ratings is None,
         })
+
+    # One Workshop page per run, only as a cross-check of the API-based stars.
+    overrides = check_stars([m for m in mods if m["ratings"] is not None])
+    for m in mods:
+        o = overrides.get(m["id"])
+        if o and o["ratings"] == m["ratings"]:
+            m["stars"] = o["stars"]
+
+    rating_alerts(mods, prev_mods, titles)
 
     # History: one snapshot per 30 min, used for 24 h gains and the trend line.
     hist = read_json("history.json", [])
@@ -344,7 +354,7 @@ def main():
 
     write_json(os.path.join(OUT, "stats.json"), {"fetched": now, "mods": mods, "series": series})
     n_comments = write_comments_page(store, titles, now)
-    print(f"{len(mods)} mods, {n_comments} comments, {len(new)} new")
+    print(f"{len(mods)} mods ({'API key' if keyed else 'keyless API'}), {n_comments} comments, {len(new)} new")
     try:
         for title, _, _ in milestones.check(mods, STATE, notify, read_json, write_json):
             print("milestone:", title)
