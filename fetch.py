@@ -11,6 +11,7 @@ import html as htmllib
 import json, os, re, time
 import urllib.request, urllib.parse
 import insights
+import milestones
 
 STEAM_ID = "76561198108112056"
 APP_ID = "1158310"  # Crusader Kings III
@@ -314,6 +315,11 @@ def main():
     write_json(os.path.join(OUT, "stats.json"), {"fetched": now, "mods": mods, "series": series})
     n_comments = write_comments_page(store, titles, now)
     print(f"{len(mods)} mods, {n_comments} comments, {len(new)} new")
+    try:
+        for title, _, _ in milestones.check(mods, STATE, notify, read_json, write_json):
+            print("milestone:", title)
+    except Exception as e:
+        print("milestones failed:", type(e).__name__, e)
     try:
         insights.run([m["id"] for m in mods], STATE, os.path.join(OUT, "insights.json"),
                       notify, now, read_json, write_json)
