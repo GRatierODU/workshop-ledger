@@ -115,7 +115,8 @@ function modPage(w, m, page, pages, ins, stats) {
   const head = w.addStack();
   head.centerAlignContent();
   text(head, short(m.title).toUpperCase(), 10, GOLD, true);
-  w.addSpacer(3);
+  w.addSpacer(2);
+  text(w, `${fmt(m.visitors)} views`, 10, MUTED);
   const subs = w.addStack();
   subs.bottomAlignContent();
   text(subs, fmt(m.subs), 24, INK, true);
