@@ -34,6 +34,7 @@ h1{font:700 26px var(--display);letter-spacing:.04em;margin:0;text-wrap:balance}
 h1 small{display:block;font:500 12px var(--body);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-top:4px}
 .status{display:flex;flex-wrap:wrap;align-items:center;gap:10px;color:var(--muted);font-size:12px}
 .when{display:flex;align-items:center;gap:8px}
+.toast{position:fixed;left:50%;bottom:max(20px,env(safe-area-inset-bottom));transform:translateX(-50%);max-width:min(92vw,420px);background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:8px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:20}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--up);flex:none}
 .dot.busy{background:var(--gold);animation:p 1s infinite}.dot.err{background:var(--down)}.dot.old{background:var(--gold)}
 @keyframes p{50%{opacity:.3}}
@@ -294,7 +295,15 @@ async function load(){
  catch(e){dot.className='dot err';err.hidden=false;err.textContent='Could not load the stats ('+e.message+'). Check your connection and press Reload.'}
  loadComments();
 }
-document.getElementById('refresh').onclick=load;
+let toastTimer;
+function toast(msg){let t=document.getElementById('toast');if(!t){t=document.createElement('div');t.id='toast';t.className='toast';t.setAttribute('role','status');document.body.appendChild(t)}
+ t.textContent=msg;t.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.hidden=true,4000)}
+document.getElementById('refresh').onclick=async()=>{
+ const before=data&&data.fetched,btn=document.getElementById('refresh');btn.disabled=true;btn.textContent='Loading…';
+ await load();btn.disabled=false;btn.textContent='Reload';
+ if(!data)return;
+ toast(data.fetched!==before?`Updated: Steam data from ${ago(data.fetched)}.`
+  :`Already up to date. Steam data is from ${ago(data.fetched)}; it refreshes every ~15 minutes.`)};
 
 /* ---- comments inbox: read/unread is remembered on each device ---- */
 let cdata=null,seen=store.get('wl-seen');
