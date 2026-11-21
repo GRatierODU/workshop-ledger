@@ -1,5 +1,6 @@
 // Workshop Ledger widget for Scriptable (iPhone / iPad).
-// Small: totals. Medium: totals + top mods. Large: totals + every mod + best rankings.
+// Small: rotates through a global page and one page per mod (next page on each refresh).
+// Medium: totals + top mods. Large: totals + every mod + best rankings.
 // Tap the widget to open the dashboard. Data refreshes on its own about every 10–15 min
 // (iOS decides the exact moment).
 
@@ -13,6 +14,7 @@ async function getJSON(path) {
   return await r.loadJSON();
 }
 
+const plural = (n, word) => `${fmt(n)} ${word}${n === 1 ? "" : "s"}`;
 const fmt = (n) => (n == null ? "–" : Number(n).toLocaleString("en-US"));
 const short = (t) => t.replace(/^AGOT\s*-\s*/i, "").replace(/^The\s+/i, "");
 const pct = (m) => (m.up != null && m.up + m.down > 0 ? Math.round((m.up / (m.up + m.down)) * 100) + "%" : "–");
@@ -37,6 +39,57 @@ function text(stack, str, size, color, bold) {
 function delta(stack, v, size) {
   if (v == null || v === 0) return;
   text(stack, (v > 0 ? " +" : " ") + fmt(v), size, v > 0 ? UP : DOWN, true);
+}
+
+// Page dots for the rotating small widget (gold = this page), with the data age.
+function dots(w, page, pages, stats) {
+  w._dots = { page, pages, stats };
+}
+function drawDots(w) {
+  if (!w._dots) return;
+  const { page, pages } = w._dots;
+  w.addSpacer(4);
+  const row = w.addStack();
+  row.centerAlignContent();
+  for (let i = 0; i < pages; i++) {
+    text(row, "●", i === page ? 8 : 6, i === page ? GOLD : MUTED);
+    if (i < pages - 1) row.addSpacer(3);
+  }
+}
+
+const RANK_LABELS = { trend_agot: "trending AGOT", trend_all: "trending CK3", subs_agot: "AGOT by subs", subs_all: "CK3 by subs" };
+
+function bestRank(ins, id) {
+  const r = ins && ins.ranks && ins.ranks[id];
+  if (!r) return null;
+  const k = Object.keys(RANK_LABELS).filter((k) => r[k]).sort((a, b) => r[a] - r[b])[0];
+  return k ? `#${r[k]} ${RANK_LABELS[k]}` : null;
+}
+
+function modPage(w, m, page, pages, ins, stats) {
+  w.url = "https://steamcommunity.com/sharedfiles/filedetails/?id=" + m.id;
+  const head = w.addStack();
+  head.centerAlignContent();
+  text(head, short(m.title).toUpperCase(), 10, GOLD, true);
+  w.addSpacer(3);
+  const subs = w.addStack();
+  subs.bottomAlignContent();
+  text(subs, fmt(m.subs), 24, INK, true);
+  delta(subs, m.d1 && m.d1.subs, 11);
+  text(w, "subscribers", 10, MUTED);
+  w.addSpacer(4);
+  const rate = w.addStack();
+  rate.centerAlignContent();
+  if (m.stars) text(rate, stars(m) + "  ", 10, GOLD);
+  else text(rate, "no stars yet  ", 9, MUTED);
+  text(rate, pct(m), 10, INK, true);
+  text(w, `${fmt(m.favorites)} favs · ${plural(m.comments, "comment")}`, 10, MUTED);
+  const rank = bestRank(ins, m.id);
+  if (rank) text(w, rank, 10, INK);
+  w.addSpacer();
+  dots(w, page, pages, stats);
+  drawDots(w);
+  return w;
 }
 
 async function build() {
@@ -64,6 +117,27 @@ async function build() {
   const up = mods.reduce((a, m) => a + (m.up || 0), 0), down = mods.reduce((a, m) => a + (m.down || 0), 0);
   const fam = config.widgetFamily || "medium";
 
+  // Small widget rotates: page 0 = global, then one page per mod (most subscribed first).
+  // Each refresh shows the next page. A widget parameter pins a page: "global", a number
+  // (1 = biggest mod) or part of a mod name.
+  if (fam === "small") {
+    const pages = mods.length + 1;
+    const param = ((typeof args !== "undefined" && args.widgetParameter) || "").trim().toLowerCase();
+    let page;
+    if (param === "global") page = 0;
+    else if (/^\d+$/.test(param)) page = Math.min(Number(param), mods.length);
+    else if (param) page = Math.max(0, mods.findIndex((m) => m.title.toLowerCase().includes(param)) + 1);
+    else {
+      const KEY = "workshop-ledger-page";
+      const last = Keychain.contains(KEY) ? Number(Keychain.get(KEY)) : -1;
+      page = config.runsInWidget ? (last + 1) % pages : Math.max(0, last);
+      Keychain.set(KEY, String(page));
+      w.refreshAfterDate = new Date(Date.now() + 5 * 60 * 1000);
+    }
+    if (page > 0) return modPage(w, mods[page - 1], page, pages, ins, stats);
+    dots(w, 0, pages, stats);
+  }
+
   // Header
   const head = w.addStack();
   head.centerAlignContent();
@@ -81,9 +155,8 @@ async function build() {
 
   if (fam === "small") {
     w.addSpacer();
-    const best = mods[0];
-    text(w, short(best.title), 11, INK, true);
-    text(w, `${fmt(best.subs)} subs ${stars(best)}`, 10, MUTED);
+    text(w, `${fmt(mods.reduce((a, m) => a + (m.favorites || 0), 0))} favs · ${fmt(mods.reduce((a, m) => a + (m.comments || 0), 0))} comments`, 10, MUTED);
+    drawDots(w);
     return w;
   }
 
@@ -132,6 +205,6 @@ const widget = await build();
 if (config.runsInWidget) {
   Script.setWidget(widget);
 } else {
-  await widget.presentMedium(); // preview when you run it inside Scriptable
+  await widget.presentSmall(); // preview when you run it inside Scriptable
 }
 Script.complete();
