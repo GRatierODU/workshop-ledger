@@ -357,8 +357,9 @@ document.getElementById('refresh').onclick=async()=>{
   const p=await runProgress(t0);
   if(p&&p.steps){const names=p.steps.map(x=>x.name);
    let idx=0;STEPS.forEach((st,i)=>{const k=p.steps.find(x=>x.name===st[1]);if(k&&k.status!=='queued')idx=i});
-   const fail=p.steps.find(x=>x.conclusion==='failure');
-   if(fail){ovSet(`GitHub step "${fail.name}" failed. Try again in a minute.`,100,idx,'fail');break}
+   // a failed step can be retried inside the run, so only a failed run counts
+   const fail=p.run.status==='completed'&&p.run.conclusion==='failure';
+   if(fail){const st=p.steps.find(x=>x.conclusion==='failure');ovSet(`GitHub step "${st?st.name:'update'}" failed. Try again in a minute.`,100,idx,'fail');break}
    const doneAll=p.run.status==='completed';
    ovSet(doneAll?'Published. Waiting for the page to update…':['Starting the update…','Fetching from Steam (about 45 s)…','Saving the new data…','Publishing the page…'][idx]+` ${secs} s`,
     Math.min(95,doneAll?95:12+idx*22+Math.min(20,secs%60/3)),doneAll?STEPS.length-1:idx);

@@ -49,4 +49,10 @@ jobs:
         with:
           path: docs
       - if: steps.save.outputs.site == 'yes'
+        id: deploy
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+      - if: steps.save.outputs.site == 'yes' && steps.deploy.outcome == 'failure'
+        run: sleep 20
+      - if: steps.save.outputs.site == 'yes' && steps.deploy.outcome == 'failure'
         uses: actions/deploy-pages@v4
