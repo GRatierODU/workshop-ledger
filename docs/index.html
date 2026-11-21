@@ -223,7 +223,7 @@ function head(){
 document.getElementById('head').addEventListener('click',e=>{const k=e.target.closest('th')?.dataset.k;if(!k)return;setSort(k,k===sortKey?-sortDir:(k==='title'?1:-1))});
 document.getElementById('sortsel').addEventListener('change',e=>{const k=e.target.value;setSort(k,k==='title'?1:-1)});
 function stars(m,inline){if(m.pending)return `<span class="ago">loading…</span>`;if(m.stars==null)return `<span class="sub">not enough ratings yet</span>`;
- return `<span class="stars">${'★'.repeat(m.stars)}<span class="off">${'★'.repeat(5-m.stars)}</span></span><span class="ago">${fmt(m.ratings)} ratings</span>`}
+ return `<span class="stars"${m.estimated?' title="Estimated from the vote score until Steam\'s page refreshes"':''}>${m.estimated?'≈':''}${'★'.repeat(m.stars)}<span class="off">${'★'.repeat(5-m.stars)}</span></span><span class="ago">${fmt(m.ratings)} ratings</span>`}
 const link=id=>`https://steamcommunity.com/sharedfiles/filedetails/?id=${id}`;
 const pos=m=>m.positive==null?'–':Math.round(m.positive*100)+'%';
 function render(){

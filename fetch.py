@@ -88,7 +88,7 @@ def vote_counts(ids):
     for fid, d in insights.details(ids).items():
         v = d.get("vote_data") or {}
         out[fid] = {"up": v.get("votes_up", 0), "down": v.get("votes_down", 0),
-                    "reports": d.get("num_reports", 0)}
+                    "reports": d.get("num_reports", 0), "score": v.get("score")}
     return out
 
 
@@ -116,6 +116,17 @@ def rating_alerts(votes, extras, old_stars, titles):
         if "stars" in extras.get(fid, {}) and stars is not None and new is not None and new < stars:
             notify(f"{titles.get(fid, fid)}: rating down to {new} stars",
                    f"Was {stars} stars.", page(fid))
+
+
+MIN_RATED_VOTES = 26  # observed: 25 votes showed "not enough ratings", 26 showed stars
+
+
+def stars_from_score(score, votes):
+    """Estimate Steam's star image from the API vote score (checked against 3 mods:
+    0.648 -> 4, 0.598 -> 3, 0.592 -> 3). Used only while the Workshop page is stale."""
+    if score is None or votes < MIN_RATED_VOTES:
+        return None
+    return 5 if score >= 0.8 else 4 if score >= 0.6 else 3 if score >= 0.4 else 2 if score >= 0.2 else 1
 
 
 def api_details(ids):
@@ -264,7 +275,11 @@ def main():
     old_stars = {fid: e.get("stars") for fid, e in extras.items() if "stars" in e}
     # Only the star rating needs the page, and it changes slowly: refresh the
     # PAGES_PER_RUN stalest mods each run (never-fetched first).
-    todo = sorted((d["publishedfileid"] for d in details), key=lambda f: extras.get(f, {}).get("t", 0))
+    def changed(f):
+        v = votes.get(f)
+        return bool(v) and extras.get(f, {}).get("ratings") != v["up"] + v["down"]
+    todo = sorted((d["publishedfileid"] for d in details),
+                  key=lambda f: (not changed(f), extras.get(f, {}).get("t", 0)))
     for fid in todo[:PAGES_PER_RUN]:
         e = page_extras(fid)
         if e:
@@ -276,6 +291,20 @@ def main():
 
     rating_alerts(votes, extras, old_stars, titles)
     store, totals, new = check_comments(titles)
+
+    def rating(e, v):
+        """Stars from the Workshop page when it matches the live vote count; otherwise
+        an estimate from the API score (shown with a "≈" on the page)."""
+        if not v:
+            return {"stars": e.get("stars"), "ratings": e.get("ratings"), "pending": "stars" not in e}
+        total = v["up"] + v["down"]
+        if "stars" in e and e.get("ratings") == total:
+            return {"stars": e["stars"], "ratings": total, "pending": False}
+        est = stars_from_score(v.get("score"), total)
+        if est is None and total < MIN_RATED_VOTES:
+            return {"stars": None, "ratings": total, "pending": False}
+        return {"stars": est if est is not None else e.get("stars"), "ratings": total,
+                "pending": False, "estimated": True}
 
     mods = []
     for d in details:
@@ -290,8 +319,8 @@ def main():
             "size": int(d.get("file_size") or 0),
             "created": d.get("time_created", 0), "updated": d.get("time_updated", 0),
             "tags": [t["tag"] for t in d.get("tags", [])],
-            "stars": e.get("stars"), "ratings": e.get("ratings"), "comments": totals.get(fid, e.get("comments")),
-            "changenotes": e.get("changenotes"), "pending": "stars" not in e,
+            **rating(e, votes.get(fid)), "comments": totals.get(fid, e.get("comments")),
+            "changenotes": e.get("changenotes"),
             "up": votes.get(fid, {}).get("up"), "down": votes.get(fid, {}).get("down"),
         })
 
