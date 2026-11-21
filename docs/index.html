@@ -167,7 +167,7 @@ const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&g
 const store={get(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 const cols=[
  {k:'title',l:'Mod'},{k:'stars',l:'Rating'},{k:'subs',l:'Subscribers'},{k:'lifetime_subs',l:'Lifetime subs'},{k:'favorites',l:'Favorites'},
- {k:'visitors',l:'Visitors'},{k:'rate',l:'Sub rate'},{k:'comments',l:'Comments'},{k:'size',l:'Size'}];
+ {k:'visitors',l:'Visitors'},{k:'rate',l:'Sub rate'},{k:'positive',l:'Positive'},{k:'size',l:'Size'}];
 let sortKey='subs',sortDir=-1,data=null;
 {const s=store.get('wl-sort');if(s&&cols.some(c=>c.k===s.k)){sortKey=s.k;sortDir=s.d}}
 function setSort(k,d){sortKey=k;sortDir=d;store.set('wl-sort',{k,d});render()}
@@ -180,9 +180,10 @@ document.getElementById('sortsel').addEventListener('change',e=>{const k=e.targe
 function stars(m,inline){if(m.pending)return `<span class="ago">loading…</span>`;if(m.stars==null)return `<span class="sub">not enough ratings yet</span>`;
  return `<span class="stars">${'★'.repeat(m.stars)}<span class="off">${'★'.repeat(5-m.stars)}</span></span><span class="ago">${fmt(m.ratings)} ratings</span>`}
 const link=id=>`https://steamcommunity.com/sharedfiles/filedetails/?id=${id}`;
+const pos=m=>m.positive==null?'–':Math.round(m.positive*100)+'%';
 function render(){
  if(!data)return;head();
- const mods=data.mods.map(m=>({...m,rate:m.visitors?m.subs/m.visitors:0}));
+ const mods=data.mods.map(m=>({...m,rate:m.visitors?m.subs/m.visitors:0,positive:m.up+m.down>0?m.up/(m.up+m.down):null}));
  mods.sort((a,b)=>{const x=a[sortKey],y=b[sortKey];return (typeof x==='string'?x.localeCompare(y):(x??-1)-(y??-1))*sortDir});
  const max=Math.max(...mods.map(m=>m.subs),1);
  const vis=m=>m.visibility!=='Public'?`<span class="pill warn">${m.visibility}</span>`:'';
@@ -194,7 +195,7 @@ function render(){
   <td class="num">${fmt(m.favorites)}${dlt(m.d1&&m.d1.favorites)}</td>
   <td class="num">${fmt(m.visitors)}</td>
   <td class="num">${m.visitors?(m.rate*100).toFixed(1)+'%':'–'}</td>
-  <td class="num"><a href="https://steamcommunity.com/sharedfiles/filedetails/comments/${m.id}" target="_blank" rel="noopener" style="color:inherit">${fmt(m.comments)}</a>${dlt(m.d1&&m.d1.comments)}</td>
+  <td class="num">${pos(m)}${m.up!=null?`<span class="ago">${fmt(m.up)} up · ${fmt(m.down)} down</span>`:''}</td>
   <td class="num">${size(m.size)}</td></tr>`).join('');
  const st=(k,v,d)=>`<div><div class="k">${k}</div><div class="v">${v}${d||''}</div></div>`;
  document.getElementById('cards').innerHTML=mods.map(m=>`<article class="card">
@@ -205,7 +206,7 @@ function render(){
   <div class="stats">
    ${st('Subscribers',fmt(m.subs),dlt(m.d1&&m.d1.subs))}
    ${st('Favorites',fmt(m.favorites),dlt(m.d1&&m.d1.favorites))}
-   ${st('Comments',`<a href="https://steamcommunity.com/sharedfiles/filedetails/comments/${m.id}" target="_blank" rel="noopener" style="color:inherit">${fmt(m.comments)}</a>`,dlt(m.d1&&m.d1.comments))}
+   ${st('Positive',pos(m),m.up!=null?`<span class="ago">${fmt(m.up)} up · ${fmt(m.down)} down</span>`:'')}
    ${st('Visitors',fmt(m.visitors))}
    ${st('Sub rate',m.visitors?(m.rate*100).toFixed(1)+'%':'–')}
    ${st('Lifetime',fmt(m.lifetime_subs))}
@@ -215,7 +216,7 @@ function render(){
  const tile=(k,v,d,extra='')=>`<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="d">${d!=null?`<span class="${d>0?'up':d<0?'down':''}">${d>0?'+':''}${fmt(d)}</span> last 24h`:extra}</div></div>`;
  const rated=data.mods.filter(m=>m.stars!=null);
  document.getElementById('tiles').innerHTML=
-  tile('Ratings',fmt(sum('ratings')),null,rated.length?`avg ${(rated.reduce((a,m)=>a+m.stars,0)/rated.length).toFixed(1)} ★`:'')+
+  tile('Ratings',fmt(sum('ratings')),null,sum('up')+sum('down')>0?`${Math.round(sum('up')/(sum('up')+sum('down'))*100)}% positive`:rated.length?`avg ${(rated.reduce((a,m)=>a+m.stars,0)/rated.length).toFixed(1)} ★`:'')+
   tile('Subscribers',fmt(sum('subs')),sumd('subs'),`${fmt(sum('lifetime_subs'))} lifetime`)+
   tile('Favorites',fmt(sum('favorites')),sumd('favorites'))+
   tile('Unique visitors',fmt(sum('visitors')),sumd('visitors'))+

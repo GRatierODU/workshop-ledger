@@ -17,6 +17,7 @@ HIDDEN_IDS = {"3836185589"}  # left off the dashboard (Muster Army)
 EXTRA_IDS = []  # add an id here if one ever fails to show up
 MY_ACCOUNT = str(int(STEAM_ID) - 76561197960265728)  # your own replies never notify
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "").strip()
+STEAM_API_KEY = os.environ.get("STEAM_API_KEY", "").strip()  # optional: enables up/down vote counts
 PAUSE = 4  # seconds between steamcommunity.com requests (it answers 429 to bursts)
 PAGES_PER_RUN = 2  # Workshop pages are rate-limited hard; ratings refresh in rotation
 
@@ -70,6 +71,27 @@ def discover_ids():
         write_json(os.path.join(STATE, "mod_ids.json"), ids)
     ids += [str(i) for i in EXTRA_IDS if str(i) not in ids]
     return [i for i in ids if i not in HIDDEN_IDS]
+
+
+def vote_counts(ids):
+    """Thumbs up / down per mod. Steam only gives these out with a Web API key."""
+    if not STEAM_API_KEY:
+        return {}
+    q = {"key": STEAM_API_KEY, "includevotes": "true"}
+    for n, i in enumerate(ids):
+        q[f"publishedfileids[{n}]"] = i
+    try:
+        js = json.loads(get("https://api.steampowered.com/IPublishedFileService/GetDetails/v1/?"
+                            + urllib.parse.urlencode(q)))
+    except Exception as e:
+        print("vote counts failed:", type(e).__name__)  # never print the key
+        return {}
+    out = {}
+    for d in js.get("response", {}).get("publishedfiledetails", []):
+        v = d.get("vote_data") or {}
+        if "votes_up" in v:
+            out[str(d["publishedfileid"])] = {"up": v.get("votes_up", 0), "down": v.get("votes_down", 0)}
+    return out
 
 
 def api_details(ids):
@@ -209,6 +231,7 @@ def main():
     now = int(time.time())
     ids = discover_ids()
     details = api_details(ids)
+    votes = vote_counts([d["publishedfileid"] for d in details])
     titles = {d["publishedfileid"]: d.get("title", "") for d in details}
 
     # Workshop pages (rating, comments...). Keep the last good values when Steam refuses.
@@ -242,6 +265,7 @@ def main():
             "tags": [t["tag"] for t in d.get("tags", [])],
             "stars": e.get("stars"), "ratings": e.get("ratings"), "comments": totals.get(fid, e.get("comments")),
             "changenotes": e.get("changenotes"), "pending": "stars" not in e,
+            "up": votes.get(fid, {}).get("up"), "down": votes.get(fid, {}).get("down"),
         })
 
     # History: one snapshot per 30 min, used for 24 h gains and the trend line.

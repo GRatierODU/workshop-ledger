@@ -34,6 +34,7 @@ jobs:
         run: python fetch.py
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          STEAM_API_KEY: ${{ secrets.STEAM_API_KEY }}
 
       - name: Save state
         run: |
