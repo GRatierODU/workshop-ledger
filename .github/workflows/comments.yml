@@ -39,7 +39,7 @@ jobs:
           git add docs/data state
           if [ "${{ inputs.deploy }}" != "true" ] && git diff --cached --quiet docs/data; then echo "site=no" >> "$GITHUB_OUTPUT"; else echo "site=yes" >> "$GITHUB_OUTPUT"; fi
           git diff --cached --quiet || git commit -q -m "New comments [skip ci]"
-          git push -q || (git pull -q --rebase && git push -q)
+          git push -q || (git pull -q --rebase -X theirs && git push -q)
 
       # Redeploy the page only when a new comment came in.
       - if: steps.save.outputs.site == 'yes'
