@@ -112,10 +112,6 @@ select{font:13px var(--body);color:var(--ink);background:var(--panel);border:1px
 .c .txt{margin-top:3px;white-space:pre-wrap;overflow-wrap:anywhere}
 .pill.new{color:var(--accent);border-color:var(--accent)}
 .empty{padding:24px 14px;color:var(--muted);text-align:center}
-.chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
-.chip{flex:none;display:inline-flex;align-items:center;font:600 10px/1.2 var(--body);letter-spacing:.02em;padding:4px 7px;border-radius:10px;background:color-mix(in srgb,var(--gold) 16%,transparent);color:var(--ink);white-space:nowrap}
-.chip.hot{background:var(--gold);color:#1d1b18}
-.chip .mv{margin-left:3px}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-top:20px}
 .panel h2{font:700 15px var(--display);letter-spacing:.04em;margin:0}
 .panel .bar2 .note{width:100%}
@@ -202,12 +198,6 @@ const cols=[
  {k:'title',l:'Mod'},{k:'stars',l:'Rating'},{k:'subs',l:'Subscribers'},{k:'lifetime_subs',l:'Lifetime subs'},{k:'favorites',l:'Favorites'},
  {k:'visitors',l:'Visitors'},{k:'rate',l:'Sub rate'},{k:'positive',l:'Positive'},{k:'size',l:'Size'}];
 let sortKey='subs',sortDir=-1,data=null,ins=null,board='subs';
-function chips(id){
- const r=ins&&ins.ranks&&ins.ranks[id];if(!r)return '';
- const mv=k=>{const d=r.d1&&r.d1[k];return d?`<span class="mv ${d>0?'up':'down'}">${d>0?'▲':'▼'}${Math.abs(d)}</span>`:''};
- const c=(k,label,top)=>r[k]?`<span class="chip ${r[k]<=top?'hot':''}">#${r[k]} ${label}${mv(k)}</span>`:'';
- return `<div class="chips">${c('trend_agot','AGOT trending',10)}${c('subs_agot','AGOT subs',10)}${c('trend_all','CK3 trending',100)}</div>`;
-}
 {const s=store.get('wl-sort');if(s&&cols.some(c=>c.k===s.k)){sortKey=s.k;sortDir=s.d}}
 function setSort(k,d){sortKey=k;sortDir=d;store.set('wl-sort',{k,d});render()}
 function head(){
@@ -227,7 +217,7 @@ function render(){
  const max=Math.max(...mods.map(m=>m.subs),1);
  const vis=m=>m.visibility!=='Public'?`<span class="pill warn">${m.visibility}</span>`:'';
  document.getElementById('rows').innerHTML=mods.map(m=>`<tr>
-  <td><div class="mod"><img src="${esc(m.preview)}" alt="" loading="lazy" referrerpolicy="no-referrer"><div><a href="${link(m.id)}" target="_blank" rel="noopener">${esc(m.title)}</a>${vis(m)}${chips(m.id)}</div></div></td>
+  <td><div class="mod"><img src="${esc(m.preview)}" alt="" loading="lazy" referrerpolicy="no-referrer"><div><a href="${link(m.id)}" target="_blank" rel="noopener">${esc(m.title)}</a>${vis(m)}</div></div></td>
   <td>${stars(m)}</td>
   <td class="num"><div class="subs"><div class="bar"><i style="width:${m.subs/max*100}%"></i></div>${fmt(m.subs)}</div>${dlt(m.d1&&m.d1.subs)}</td>
   <td class="num">${fmt(m.lifetime_subs)}</td>
@@ -240,7 +230,7 @@ function render(){
  document.getElementById('cards').innerHTML=mods.map(m=>`<article class="card">
   <div class="top"><img src="${esc(m.preview)}" alt="" loading="lazy" referrerpolicy="no-referrer">
    <div style="min-width:0"><a class="t" href="${link(m.id)}" target="_blank" rel="noopener">${esc(m.title)}</a>${vis(m)}
-    <div class="rate">${stars(m)}</div>${chips(m.id)}</div></div>
+    <div class="rate">${stars(m)}</div></div></div>
   <div class="subbar"><i style="width:${m.subs/max*100}%"></i></div>
   <div class="stats">
    ${st('Subscribers',fmt(m.subs),dlt(m.d1&&m.d1.subs))}
