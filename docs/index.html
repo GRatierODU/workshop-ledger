@@ -113,7 +113,7 @@ select{font:13px var(--body);color:var(--ink);background:var(--panel);border:1px
 .pill.new{color:var(--accent);border-color:var(--accent)}
 .empty{padding:24px 14px;color:var(--muted);text-align:center}
 .chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
-.chip{font:600 10px/1 var(--body);letter-spacing:.02em;padding:4px 7px;border-radius:10px;background:color-mix(in srgb,var(--gold) 16%,transparent);color:var(--ink);white-space:nowrap}
+.chip{flex:none;display:inline-flex;align-items:center;font:600 10px/1.2 var(--body);letter-spacing:.02em;padding:4px 7px;border-radius:10px;background:color-mix(in srgb,var(--gold) 16%,transparent);color:var(--ink);white-space:nowrap}
 .chip.top{background:var(--gold);color:#1d1b18}
 .chip .mv{margin-left:3px}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-top:20px}
@@ -206,7 +206,7 @@ function chips(id){
  const r=ins&&ins.ranks&&ins.ranks[id];if(!r)return '';
  const mv=k=>{const d=r.d1&&r.d1[k];return d?`<span class="mv ${d>0?'up':'down'}">${d>0?'▲':'▼'}${Math.abs(d)}</span>`:''};
  const c=(k,label,top)=>r[k]?`<span class="chip ${r[k]<=top?'top':''}">#${r[k]} ${label}${mv(k)}</span>`:'';
- return `<div class="chips">${c('trend_agot','trending AGOT',10)}${c('subs_agot','AGOT by subs',10)}${c('trend_all','trending CK3',100)}</div>`;
+ return `<div class="chips">${c('trend_agot','AGOT trending',10)}${c('subs_agot','AGOT subs',10)}${c('trend_all','CK3 trending',100)}</div>`;
 }
 {const s=store.get('wl-sort');if(s&&cols.some(c=>c.k===s.k)){sortKey=s.k;sortDir=s.d}}
 function setSort(k,d){sortKey=k;sortDir=d;store.set('wl-sort',{k,d});render()}
