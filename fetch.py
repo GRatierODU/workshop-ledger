@@ -10,6 +10,7 @@ NTFY_TOPIC secret is set.
 import html as htmllib
 import json, os, re, time
 import urllib.request, urllib.parse
+import insights
 
 STEAM_ID = "76561198108112056"
 APP_ID = "1158310"  # Crusader Kings III
@@ -52,6 +53,11 @@ def write_json(path, obj):
 
 
 def discover_ids():
+    ids = insights.user_file_ids(STEAM_ID) if STEAM_API_KEY else None
+    if ids:  # official list from the Web API
+        write_json(os.path.join(STATE, "mod_ids.json"), ids)
+        ids += [str(i) for i in EXTRA_IDS if str(i) not in ids]
+        return [i for i in ids if i not in HIDDEN_IDS]
     ids = []
     try:
         for page in range(1, 6):
@@ -74,24 +80,40 @@ def discover_ids():
 
 
 def vote_counts(ids):
-    """Thumbs up / down per mod. Steam only gives these out with a Web API key."""
+    """Thumbs up / down and report count per mod (needs the Web API key)."""
     if not STEAM_API_KEY:
         return {}
-    q = {"key": STEAM_API_KEY, "includevotes": "true"}
-    for n, i in enumerate(ids):
-        q[f"publishedfileids[{n}]"] = i
-    try:
-        js = json.loads(get("https://api.steampowered.com/IPublishedFileService/GetDetails/v1/?"
-                            + urllib.parse.urlencode(q)))
-    except Exception as e:
-        print("vote counts failed:", getattr(e, "code", type(e).__name__))  # never print the key
-        return {}
     out = {}
-    for d in js.get("response", {}).get("publishedfiledetails", []):
+    for fid, d in insights.details(ids).items():
         v = d.get("vote_data") or {}
-        if "votes_up" in v:
-            out[str(d["publishedfileid"])] = {"up": v.get("votes_up", 0), "down": v.get("votes_down", 0)}
+        out[fid] = {"up": v.get("votes_up", 0), "down": v.get("votes_down", 0),
+                    "reports": d.get("num_reports", 0)}
     return out
+
+
+def rating_alerts(votes, extras, old_stars, titles):
+    """Phone alerts for new downvotes, reports, and star rating changes."""
+    prev = read_json("votes.json", None)
+    if votes:
+        write_json(os.path.join(STATE, "votes.json"), votes)
+    page = lambda fid: f"https://steamcommunity.com/sharedfiles/filedetails/?id={fid}"
+    for fid, v in votes.items():
+        was = (prev or {}).get(fid)
+        if not was:
+            continue
+        name = titles.get(fid, fid)
+        if v["down"] > was["down"]:
+            n = v["down"] - was["down"]
+            total = v["up"] + v["down"]
+            notify(f"{name}: {n} new downvote{'s' if n > 1 else ''}",
+                   f"Now {v['up']:,} up · {v['down']:,} down ({round(v['up'] / total * 100)}% positive).", page(fid))
+        if v.get("reports", 0) > was.get("reports", 0):
+            notify(f"{name} was reported", f"{v['reports']} report(s) on Steam. Worth checking the comments.", page(fid))
+    for fid, stars in old_stars.items():
+        new = extras.get(fid, {}).get("stars")
+        if "stars" in extras.get(fid, {}) and new != stars and stars is not None and new is not None:
+            notify(f"{titles.get(fid, fid)}: rating {'up' if new > stars else 'down'} to {new} stars",
+                   f"Was {stars} stars.", page(fid))
 
 
 def api_details(ids):
@@ -216,6 +238,7 @@ def comments_only():
         print("no stats.json yet; run the full update first")
         return
     titles = {m["id"]: m["title"] for m in stats["mods"]}
+    rating_alerts(votes, extras, old_stars, titles)
     store, totals, new = check_comments(titles)
     if not new:
         print("no new comments")
@@ -236,6 +259,7 @@ def main():
 
     # Workshop pages (rating, comments...). Keep the last good values when Steam refuses.
     extras = read_json("page_cache.json", {})
+    old_stars = {fid: e.get("stars") for fid, e in extras.items() if "stars" in e}
     # Only the star rating needs the page, and it changes slowly: refresh the
     # PAGES_PER_RUN stalest mods each run (never-fetched first).
     todo = sorted((d["publishedfileid"] for d in details), key=lambda f: extras.get(f, {}).get("t", 0))
@@ -248,6 +272,7 @@ def main():
         time.sleep(PAUSE)
     write_json(os.path.join(STATE, "page_cache.json"), extras)
 
+    rating_alerts(votes, extras, old_stars, titles)
     store, totals, new = check_comments(titles)
 
     mods = []
@@ -289,6 +314,11 @@ def main():
     write_json(os.path.join(OUT, "stats.json"), {"fetched": now, "mods": mods, "series": series})
     n_comments = write_comments_page(store, titles, now)
     print(f"{len(mods)} mods, {n_comments} comments, {len(new)} new")
+    try:
+        insights.run([m["id"] for m in mods], STATE, os.path.join(OUT, "insights.json"),
+                      notify, now, read_json, write_json)
+    except Exception as e:  # insights must never break the main update
+        print("insights failed:", type(e).__name__, e)
 
 
 if __name__ == "__main__":
