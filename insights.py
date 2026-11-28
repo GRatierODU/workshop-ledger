@@ -119,12 +119,24 @@ def run(my_ids, state_dir, out_path, notify, now, read_json, write_json):
              for fid in mine}
 
     # Collections that include each mod (file type 1 = collections)
-    coll_of = {}
+    # Sorted by publish date (query_type 1): sorting by subscribers left out almost every
+    # collection, since collections have no subscribers of their own.
+    coll_of, coll_totals = {}, {}
     for fid in mine:
-        r = api("QueryFiles", query_type=9, appid=APP, creator_appid=APP, numperpage=100, cursor="*",
-                ids_only="true", filetype=1, child_publishedfileid=fid)
-        for d in (r or {}).get("publishedfiledetails", []):
-            coll_of.setdefault(str(d["publishedfileid"]), []).append(fid)
+        cursor = "*"
+        for _ in range(5):  # up to 500 collections per mod
+            r = api("QueryFiles", query_type=1, appid=APP, creator_appid=APP, numperpage=100, cursor=cursor,
+                    ids_only="true", filetype=1, child_publishedfileid=fid)
+            if not r:
+                break
+            coll_totals[fid] = r.get("total", 0)
+            page = r.get("publishedfiledetails", [])
+            for d in page:
+                coll_of.setdefault(str(d["publishedfileid"]), []).append(fid)
+            if len(page) < 100 or not r.get("next_cursor") or r["next_cursor"] == cursor:
+                break
+            cursor = r["next_cursor"]
+    print("collections per mod:", coll_totals)
 
     # Details for the leaderboards and collections
     lead_ids = subs_agot[:TOP] + trend_agot[:TOP] + subs_all[:TOP] + trend_all[:TOP]
