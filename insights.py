@@ -125,7 +125,9 @@ def run(my_ids, state_dir, out_path, notify, now, read_json, write_json):
     for fid in mine:
         cursor = "*"
         for _ in range(5):  # up to 500 collections per mod
-            r = api("QueryFiles", query_type=1, appid=APP, creator_appid=APP, numperpage=100, cursor=cursor,
+            # no creator_appid here: collections are created by Steam, not by the game,
+            # so that filter hid most of them
+            r = api("QueryFiles", query_type=1, appid=APP, numperpage=100, cursor=cursor,
                     ids_only="true", filetype=1, child_publishedfileid=fid)
             if not r:
                 break
